@@ -1,0 +1,33 @@
+# Line endings: normalize everything Git can detect as text to LF in the repo,
+# and check out text files with LF on every machine regardless of platform
+# (keeps Rust/Cargo builds and diffs stable across Windows/Linux/macOS).
+* text=auto
+
+*.rs   text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.html text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
+
+# Binary: never line-ending converted, never diffed/merged as text.
+# `binary` = -diff -merge -text
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+
+# Generated PDF output
+*.pdf binary
+*.png binary
+*.jpg binary
+
+# wasm-bindgen output (tr-wasm)
+*.wasm binary
+
+# ETDA / e-Tax XML: marked binary on purpose. Signed XML documents are
+# whitespace- and byte-sensitive, so any newline normalization would break
+# the signature.
+*.xml binary
