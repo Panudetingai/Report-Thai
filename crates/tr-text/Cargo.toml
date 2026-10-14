@@ -1,0 +1,13 @@
+[package]
+name = "tr-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tr-core = { path = "../tr-core" }
+cosmic-text = "0.19"
+fontdb = "0.23"
+thaibreak = "1.4"
+uniworld = "0.2"
+ttf-parser = "0.25"

@@ -1,0 +1,15 @@
+[package]
+name = "tr-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tr-server"
+path = "src/main.rs"
+
+[dependencies]
+tr-core = { path = "../tr-core" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"

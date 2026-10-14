@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="th">
+<meta charset="utf-8">
+<title>ThaiReport Phase 0 — WASM spike ข้อ 2</title>
+<style>
+  body { font-family: Tahoma, "Noto Sans Thai", sans-serif; margin: 24px; }
+  #page { border: 1px solid #999; width: 595px; }
+  #log { white-space: pre-wrap; background: #f4f4f4; padding: 8px; margin-top: 12px; }
+</style>
+<h1>Phase 0 ข้อ 2: shaping + layout ใน browser (WASM)</h1>
+<p>1) เลือกฟอนต์ไทย (.ttf) เช่น <code>C:\Windows\Fonts\tahoma.ttf</code> — ใช้เฉพาะในเครื่อง ไม่ถูกอัปโหลด</p>
+<input type="file" id="font" accept=".ttf,.ttc,.otf">
+<p>2) ผลตัดคำ + ตัดบรรทัด (engine ตัวเดียวกับ native) จะวาดลง canvas กว้าง 595pt:</p>
+<canvas id="page" width="595" height="500"></canvas>
+<div id="log">รอฟอนต์…</div>
+<script type="module">
+import init, { wrap_thai, segment_thai } from "./pkg-web/tr_wasm.js";
+await init();
+const log = (m) => document.getElementById("log").textContent += m + "\n";
+const sentences = [
+  "น้ำใจงามยามค่ำคืนชื่นชมดวงจันทร์เต็มดวง",
+  "ประโยคยาวไม่มีวรรค: บริษัทนี้ให้บริการรับทำบัญชีและยื่นภาษีครบวงจรทั่วประเทศโดยไม่หยุดพัก",
+  "ตัวเลขผสม: ใบกำกับภาษีเลขที่ INV-2569-00123 ยอด 12345.67 บาท วันที่ 14/10/2569",
+];
+log("WASM โหลดแล้ว ทดสอบ segment (ไม่ใช้ฟอนต์):");
+for (const s of sentences) log(`- ${s.slice(0, 24)}… → ${JSON.parse(segment_thai(s)).length} คำ`);
+document.getElementById("font").addEventListener("change", async (e) => {
+  const fileBuf = await e.target.files[0].arrayBuffer();
+  const buf = new Uint8Array(fileBuf);
+  // วาดด้วยฟอนต์เดียวกับที่ engine ใช้วัด — ไม่งั้นตัวแคบ/กว้างไม่เท่ากันแล้วล้น
+  const face = new FontFace("SpikeThai", fileBuf);
+  await face.load();
+  document.fonts.add(face);
+  const dict = JSON.stringify(["วันที่", "เลขที่"]);
+  const ctx = document.getElementById("page").getContext("2d");
+  ctx.clearRect(0, 0, 595, 500);
+  ctx.font = "16px SpikeThai";
+  ctx.fillStyle = "#111";
+  let y = 40;
+  for (const s of sentences) {
+    for (const line of JSON.parse(wrap_thai(buf, s, 16.0, 595 - 96, dict))) {
+      ctx.fillText(line, 48, y);
+      y += 27;
+    }
+    y += 8;
+  }
+  log("วาด 3 ประโยคด้วยจุดตัดจาก WASM engine แล้ว (ข้อความวาดด้วย canvas ของ browser, จุดตัดบรรทัดมาจาก engine)");
+});
+</script>
+</html>

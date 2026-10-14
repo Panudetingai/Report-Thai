@@ -1,0 +1,9 @@
+/target
+/dist
+/node_modules
+/.next
+/out
+*.pdf
+*.png
+.DS_Store
+Thumbs.db

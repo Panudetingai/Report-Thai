@@ -1,0 +1,17 @@
+[package]
+name = "tr-etax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tr-core = { path = "../tr-core" }
+
+[dev-dependencies]
+# Phase 0 ข้อ 5 spike เท่านั้น (ห้ามเลื่อนขึ้น dependencies หลักจนกว่า Phase 4 จะตัดสิน)
+underskrift = "0.1"
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+default = []
+etax = []

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.0",
+  "page": { "size": "A4", "margin": [15, 15, 15, 15], "orientation": "portrait" },
+  "fonts": [{ "family": "Sarabun", "embed": true }],
+  "user_dict": ["วันที่", "เลขที่", "ใบกำกับภาษี"],
+  "bands": [
+    {
+      "type": "title",
+      "height": 54,
+      "elements": [
+        { "type": "rectangle", "x": 0, "y": 0, "w": 180, "h": 3.5, "fill": "#1F4E79" },
+        { "type": "text", "x": 0, "y": 5.5, "w": 180, "h": 11, "font": "Sarabun", "size": 20, "bold": true, "align": "center", "text": "ใบกำกับภาษี", "overflow": "error" },
+        { "type": "text", "x": 0, "y": 17, "w": 180, "h": 6, "font": "Sarabun", "size": 10, "align": "center", "text": "เลขประจำตัวผู้เสียภาษี {{ company.tax_id }} {{ company.branch }}", "overflow": "wrap" },
+        { "type": "rectangle", "x": 0, "y": 24, "w": 180, "h": 18, "fill": "#F2F4F7", "stroke": "#D0D7E3", "width": 0.5 },
+        { "type": "text", "x": 3, "y": 25.5, "w": 107, "h": 15, "font": "Sarabun", "size": 10, "text": "{{ company.name }}\n{{ company.address }}\nโทร {{ company.phone }}", "overflow": "wrap" },
+        { "type": "text", "x": 114, "y": 25.5, "w": 63, "h": 15, "font": "Sarabun", "size": 10, "align": "right", "text": "เลขที่ {{ doc.no }}\n{{ doc.date }}", "overflow": "wrap" },
+        { "type": "text", "x": 3, "y": 43, "w": 174, "h": 9.5, "font": "Sarabun", "size": 10, "text": "ลูกค้า {{ customer.name }} {{ customer.address }}", "overflow": "wrap" },
+        { "type": "line", "x": 0, "y": 52.8, "w": 180, "h": 0, "width": 1 },
+        { "type": "line", "x": 0, "y": 53.6, "w": 180, "h": 0, "width": 0.5 }
+      ]
+    },
+    {
+      "type": "detail",
+      "dataSource": "items",
+      "height": 8,
+      "elements": [
+        {
+          "type": "table",
+          "x": 0, "y": 0, "w": 180, "h": 8,
+          "font": "Sarabun", "size": 10,
+          "data_source": "items",
+          "header_repeat": true,
+          "columns": [
+            { "width": 15, "header": "ลำดับ", "field": "{{ item.no }}", "align": "center" },
+            { "width": 85, "header": "รายการ", "field": "{{ item.name }}", "align": "left" },
+            { "width": 20, "header": "จำนวน", "field": "{{ item.qty }}", "align": "right" },
+            { "width": 30, "header": "ราคา", "field": "{{ item.price }}", "align": "right" },
+            { "width": 30, "header": "รวม", "field": "{{ item.amount }}", "align": "right" }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "summary",
+      "gap_before": 4,
+      "height": 42,
+      "elements": [
+        { "type": "text", "x": 0, "y": 0, "w": 86, "h": 14, "font": "Sarabun", "size": 10, "text": "({{ baht_text }})", "overflow": "wrap" },
+        { "type": "rectangle", "x": 90, "y": 0, "w": 90, "h": 27, "fill": "#F2F4F7", "stroke": "#1F4E79", "width": 0.6 },
+        { "type": "text", "x": 94, "y": 2, "w": 42, "h": 7, "font": "Sarabun", "size": 10, "align": "right", "text": "รวมก่อนภาษี", "overflow": "error" },
+        { "type": "text", "x": 136, "y": 2, "w": 40, "h": 7, "font": "Sarabun", "size": 10, "align": "right", "text": "{{ subtotal }}", "overflow": "error" },
+        { "type": "text", "x": 94, "y": 9, "w": 42, "h": 7, "font": "Sarabun", "size": 10, "align": "right", "text": "ภาษี 7%", "overflow": "error" },
+        { "type": "text", "x": 136, "y": 9, "w": 40, "h": 7, "font": "Sarabun", "size": 10, "align": "right", "text": "{{ vat }}", "overflow": "error" },
+        { "type": "line", "x": 94, "y": 16.5, "w": 82, "h": 0, "width": 0.5 },
+        { "type": "text", "x": 94, "y": 18, "w": 42, "h": 8, "font": "Sarabun", "size": 12, "bold": true, "align": "right", "text": "รวมทั้งสิ้น", "overflow": "error" },
+        { "type": "text", "x": 136, "y": 18, "w": 40, "h": 8, "font": "Sarabun", "size": 12, "bold": true, "align": "right", "text": "{{ total }}", "overflow": "error" }
+      ]
+    },
+    {
+      "type": "pageFooter",
+      "height": 10,
+      "elements": [
+        { "type": "line", "x": 0, "y": 0, "w": 180, "h": 0, "width": 0.7 },
+        { "type": "text", "x": 0, "y": 2, "w": 120, "h": 6, "font": "Sarabun", "size": 8.5, "text": "ออกแบบให้สอดคล้องกับข้อกำหนดกรมสรรพากร ผู้ใช้ต้องตรวจสอบกับผู้เชี่ยวชาญด้านภาษีของตน", "overflow": "clip" },
+        { "type": "text", "x": 130, "y": 2, "w": 50, "h": 6, "font": "Sarabun", "size": 9, "align": "right", "text": "หน้า {{ page }}/{{ pages }}", "overflow": "error" }
+      ]
+    }
+  ]
+}

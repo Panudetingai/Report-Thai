@@ -1,0 +1,28 @@
+{
+  "company": {
+    "address": "เลขที่ 9 ซ.ลาดพร้าววังหิน 33 ถ.ลาดพร้าววังหิน แขวงลาดพร้าว เขตลาดพร้าว กทม. 10230",
+    "phone": "02-5381038",
+    "hotel_name": "WAC Research"
+  },
+  "guest": {
+    "first_name": "",
+    "last_name": "",
+    "id_card": "",
+    "alien_no": "",
+    "passport_no": "",
+    "occupation": "",
+    "nationality": "ไทย",
+    "address": "59 ซอยลาดพร้าววังหิน 48 ถนนลาดพร้าววังหิน แขวงลาดพร้าว เขตลาดพร้าว กรุงเทพมหานคร",
+    "phone": "",
+    "signature": ""
+  },
+  "departure": { "other": "" },
+  "destination": { "other": "" },
+  "stay": {
+    "arrival_date": "17/02/2566",
+    "arrival_time": "10:02",
+    "departure_date": "18/02/2566",
+    "departure_time": "12:00",
+    "room_no": ""
+  }
+}

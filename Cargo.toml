@@ -1,0 +1,20 @@
+[workspace]
+members = [
+  "crates/tr-core",
+  "crates/tr-text",
+  "crates/tr-pdf",
+  "crates/tr-thai",
+  "crates/tr-etax",
+  "crates/tr-wasm",
+  "crates/tr-server",
+  "crates/tr-cli",
+  "crates/tr-mcp",
+  "crates/tr-node",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["ThaiReport Contributors"]

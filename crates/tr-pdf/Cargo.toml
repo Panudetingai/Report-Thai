@@ -1,0 +1,12 @@
+[package]
+name = "tr-pdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tr-core = { path = "../tr-core" }
+tr-text = { path = "../tr-text" }
+krilla = "0.8"
+serde_json = "1"
+base64 = "0.22"
