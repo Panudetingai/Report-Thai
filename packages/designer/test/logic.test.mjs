@@ -253,3 +253,72 @@ test("removeEls: ลบหลาย element พร้อมกัน", () => {
   h = reduce(h, { type: "removeEls", band: 0, indexes: [0, 2] });
   assert.equal(h.template.bands[0].elements.length, 1);
 });
+
+// ---- z-order (ลำดับซ้อน): index สูงอยู่บนสุด ----------------------------------
+import { zOrderPlan } from "../src/state.js";
+
+test("zOrderPlan: front/back ย้ายรายการที่เลือกไปบนสุด/ล่างสุด คงลำดับสัมพัทธ์", () => {
+  assert.deepEqual(zOrderPlan(5, [1, 3], "front"), { order: [0, 2, 4, 1, 3], indexes: [3, 4] });
+  assert.deepEqual(zOrderPlan(5, [1, 3], "back"), { order: [1, 3, 0, 2, 4], indexes: [0, 1] });
+  assert.deepEqual(zOrderPlan(5, [0], "front").order, [1, 2, 3, 4, 0]);
+});
+
+test("zOrderPlan: forward/backward ขยับทีละชั้น ข้ามรายการที่ไม่ได้เลือก", () => {
+  assert.deepEqual(zOrderPlan(4, [1], "forward").order, [0, 2, 1, 3]);
+  assert.deepEqual(zOrderPlan(4, [2], "backward").order, [0, 2, 1, 3]);
+  // ไม่มีอะไรให้ขยับต่อ (อยู่บนสุดแล้ว) → ลำดับเดิม
+  assert.deepEqual(zOrderPlan(4, [3], "forward").order, [0, 1, 2, 3]);
+  assert.deepEqual(zOrderPlan(4, [0], "backward").order, [0, 1, 2, 3]);
+});
+
+test("zOrderPlan: กลุ่มที่เลือกติดกันขยับขึ้นพร้อมกันทีละชั้น", () => {
+  const r = zOrderPlan(5, [1, 2], "forward");
+  assert.deepEqual(r.order, [0, 3, 1, 2, 4]);
+  assert.deepEqual(r.indexes, [2, 3]);
+});
+
+test("reorderEls: ปรับลำดับใน band และ undo กลับได้", () => {
+  const el = (text) => ({ type: "text", x: 0, y: 0, w: 10, h: 5, text });
+  const tpl = { bands: [{ type: "detail", height: 20, elements: [el("a"), el("b"), el("c")] }] };
+  const h0 = initialHistory(tpl, DATA);
+  const h1 = historyReducer(h0, { type: "reorderEls", band: 0, indexes: [0], mode: "front" });
+  assert.deepEqual(h1.template.bands[0].elements.map((e) => e.text), ["b", "c", "a"]);
+  const h2 = historyReducer(h1, { type: "undo" });
+  assert.deepEqual(h2.template.bands[0].elements.map((e) => e.text), ["a", "b", "c"]);
+  // ลำดับไม่เปลี่ยน → ไม่บันทึกประวัติ
+  assert.equal(historyReducer(h0, { type: "reorderEls", band: 0, indexes: [2], mode: "front" }), h0);
+});
+
+// ---- การจำลองการขึ้นหน้าใหม่ (ให้ตรงกับ engine: แถวไม่ถูกหั่นข้ามหน้า) -----------
+import { simulatePages } from "../src/pagination.js";
+
+const rowsData = (n) => ({ items: Array.from({ length: n }, (_, k) => ({ name: `r${k + 1}` })) });
+const detailBand = (h) => ({ type: "detail", height: h, elements: [{ type: "text", x: 0, y: 0, w: 180, h: 10, text: "{{ item.name }}" }] });
+
+test("simulatePages: 13 แถว × 40 mm บนหน้า 267 mm → 3 หน้า (ตรงกับ engine ที่ทดสอบจริง: 6+6+1)", () => {
+  const sim = simulatePages([{ b: detailBand(40), i: 0 }], rowsData(13), 267);
+  assert.equal(sim.pages, 3);
+  assert.deepEqual(sim.events.map((e) => e.page), [2, 3]);
+  assert.equal(sim.totalMm, 520);
+});
+
+test("simulatePages: 6 แถวพอดีหน้าเดียว, 7 แถวขึ้นหน้าใหม่ 1 ครั้ง", () => {
+  assert.equal(simulatePages([{ b: detailBand(40), i: 0 }], rowsData(6), 267).pages, 1);
+  const seven = simulatePages([{ b: detailBand(40), i: 0 }], rowsData(7), 267);
+  assert.equal(seven.pages, 2);
+  assert.equal(seven.events.length, 1);
+});
+
+test("simulatePages: band ทั่วไปที่ไม่พอจะถูกดันไปหน้าใหม่ทั้งบล็อก (kind = before)", () => {
+  const header = { b: { type: "title", height: 200, elements: [] }, i: 0 };
+  const summary = { b: { type: "summary", height: 80, elements: [] }, i: 1 };
+  const sim = simulatePages([header, summary], { items: [] }, 267);
+  assert.equal(sim.pages, 2);
+  assert.deepEqual(sim.events, [{ bi: 1, kind: "before", page: 2 }]);
+});
+
+test("simulatePages: ไม่มีแถวข้อมูล → ไม่มี detail และไม่ขึ้นหน้า", () => {
+  const sim = simulatePages([{ b: detailBand(40), i: 0 }], { items: [] }, 267);
+  assert.equal(sim.pages, 1);
+  assert.equal(sim.totalMm, 0);
+});

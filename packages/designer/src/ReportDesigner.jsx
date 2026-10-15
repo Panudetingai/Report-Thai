@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Icon } from "./icons.jsx";
+import { Button } from "./components/ui/button.jsx";
 import { DND_KIND } from "./canvas/bandHit.js";
 import { usePreviewEngine } from "./hooks/usePreviewEngine.js";
 import { BandStage, RULER_H } from "./BandStage.jsx";
 import { PreviewTab } from "./PreviewTab.jsx";
-import { BandProps, ElementProps, PageProps } from "./Inspector.jsx";
+import { BandProps, ElementProps, PageProps, ZOrderButtons } from "./Inspector.jsx";
 import { DataPanel } from "./DataPanel.jsx";
 import { analyzeTemplate, buildCatalog } from "./fields.js";
 import { detailSourceOf, tableSourceOf } from "./bind.js";
@@ -12,7 +13,7 @@ import { ALIGN_ACTIONS, alignChanges, groupMembers, newGroupId } from "./layout-
 import { SAMPLES } from "./samples.js";
 import { StructurePicker } from "./StructurePicker.jsx";
 import { STANDARD_STRUCTURES, loadUserStructures, makeUserStructure, parseStructureFile, saveUserStructures, structureFileText } from "./structures.js";
-import { ADD_KINDS, BAND_LABELS, BAND_ORDER, KIND_LABELS, bandRank, bandTitle, countStrays, historyReducer, initialHistory, newElement, planMove, planPlacement } from "./state.js";
+import { ADD_KINDS, BAND_LABELS, BAND_ORDER, KIND_LABELS, bandRank, bandTitle, countStrays, historyReducer, initialHistory, newElement, planMove, planPlacement, zOrderPlan } from "./state.js";
 import { BASE_PX_PER_MM, contentWidth, margins, pageSize } from "./layout.js";
 
 const MIN_ZOOM = 0.55;
@@ -46,12 +47,21 @@ const SHORTCUTS = [
   ["⌘/Ctrl + A", "เลือกทั้ง band"],
   ["⌘/Ctrl + C · V · D", "คัดลอก · วาง · ทำซ้ำ (D)"],
   ["⌘/Ctrl + G", "จัดกลุ่ม (Shift = แยกกลุ่ม)"],
+  ["⌘/Ctrl + ] · [", "ขึ้น / ลงหนึ่งชั้น (ลำดับซ้อน)"],
+  ["⌘/Ctrl + Shift + ] · [", "ไปบนสุด / ไปล่างสุด"],
   ["Tab / Shift + Tab", "เลือก element ถัดไป / ก่อนหน้า"],
   ["ลูกศร", "ขยับรายการที่เลือก 0.5 mm (Shift = 5 mm)"],
   ["Delete / Backspace", "ลบรายการที่เลือก"],
   ["⌘/Ctrl + +  /  −", "ซูมเข้า / ออก"],
   ["Esc", "ยกเลิกการเลือก"],
 ];
+
+const Z_NOTICE = {
+  front: "ย้ายไปบนสุดแล้ว",
+  forward: "ขึ้นหนึ่งชั้นแล้ว",
+  backward: "ลงหนึ่งชั้นแล้ว",
+  back: "ย้ายไปล่างสุดแล้ว",
+};
 
 function DisplayRow({ label, hint, children }) {
   return (
@@ -91,7 +101,7 @@ const ALIGN_ICON = {
   sameH: "sameH",
 };
 
-function SelectionBar({ count, grouped, onAlign, onGroup, onUngroup, onDelete }) {
+function SelectionBar({ count, grouped, onAlign, onGroup, onUngroup, onDelete, onReorder }) {
   const [group, align] = [ALIGN_ACTIONS.slice(0, 6), ALIGN_ACTIONS.slice(6)];
   return (
     <div className="sel-bar" role="toolbar" aria-label="จัดวางรายการที่เลือก">
@@ -120,6 +130,9 @@ function SelectionBar({ count, grouped, onAlign, onGroup, onUngroup, onDelete })
             <Icon name="group" size={15} /> จัดกลุ่ม
           </button>
         )}
+      </div>
+      <div className="sel-group" role="group" aria-label="ลำดับซ้อน">
+        <ZOrderButtons onReorder={onReorder} compact />
       </div>
       <button type="button" className="icon-btn danger" onClick={onDelete} title="ลบทั้งหมดที่เลือก (Delete)" aria-label="ลบรายการที่เลือก">
         <Icon name="trash" size={15} />
@@ -449,6 +462,22 @@ export function ReportDesigner({ initialTemplate, initialData }) {
     setNotice(`ลบ band แล้ว (Ctrl/⌘+Z เพื่อย้อนกลับ)`);
   }
 
+  /** ย้ายลำดับซ้อนของรายการที่เลือก (ไปบนสุด/ขึ้น/ลง/ไปล่างสุด) — เลือกรายการเดิมต่อไปหลังย้าย */
+  function reorderSelected(mode) {
+    const els = template.bands[bandIdx]?.elements ?? [];
+    if (!selIdxs.length) return;
+    const { order, indexes } = zOrderPlan(els.length, selIdxs, mode);
+    if (order.every((v, i) => v === i)) {
+      setNotice(mode === "front" || mode === "forward" ? "อยู่บนสุดแล้ว" : "อยู่ล่างสุดแล้ว");
+      return;
+    }
+    dispatch({ type: "reorderEls", band: bandIdx, indexes: selIdxs, mode });
+    const primary = order.indexOf(selEl);
+    setSelEl(primary);
+    setExtraSel(indexes.filter((i) => i !== primary));
+    setNotice(Z_NOTICE[mode]);
+  }
+
   function removeSelected() {
     if (!selIdxs.length) return;
     dispatch({ type: "removeEls", band: bandIdx, indexes: selIdxs });
@@ -502,6 +531,11 @@ export function ReportDesigner({ initialTemplate, initialData }) {
         setSelEl(null);
         setExtraSel([]);
         return;
+      }
+      if (mod && (e.code === "BracketRight" || e.code === "BracketLeft") && idxs.length) {
+        e.preventDefault();
+        const up = e.code === "BracketRight";
+        return void reorderSelected(e.shiftKey ? (up ? "front" : "back") : up ? "forward" : "backward");
       }
       if (mod && key === "a") {
         e.preventDefault();
@@ -614,12 +648,12 @@ export function ReportDesigner({ initialTemplate, initialData }) {
         />
 
         <div className="btn-group">
-          <button type="button" className="icon-btn" onClick={() => dispatch({ type: "undo" })} disabled={!doc.past.length} title="ย้อนกลับ (Ctrl/⌘+Z)">
+          <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "undo" })} disabled={!doc.past.length} title="ย้อนกลับ (Ctrl/⌘+Z)" aria-label="ย้อนกลับ">
             <Icon name="undo" />
-          </button>
-          <button type="button" className="icon-btn" onClick={() => dispatch({ type: "redo" })} disabled={!doc.future.length} title="ทำซ้ำ (Ctrl/⌘+Shift+Z)">
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "redo" })} disabled={!doc.future.length} title="ทำซ้ำ (Ctrl/⌘+Shift+Z)" aria-label="ทำซ้ำ">
             <Icon name="redo" />
-          </button>
+          </Button>
         </div>
 
         <div className="topbar-spacer" />
@@ -637,18 +671,18 @@ export function ReportDesigner({ initialTemplate, initialData }) {
           {problemCount ? `⚠ ${problemCount} ตัวแปรไม่พบในข้อมูล` : "✓ ผูกข้อมูลครบ"}
         </button>
         <div className="help-wrap">
-          <button type="button" className="icon-btn" onClick={() => setShowHelp((v) => !v)} title="คีย์ลัด" aria-expanded={showHelp} aria-label="คีย์ลัด">
+          <Button variant="ghost" size="icon" onClick={() => setShowHelp((v) => !v)} title="คีย์ลัด" aria-expanded={showHelp} aria-label="คีย์ลัด">
             ?
-          </button>
+          </Button>
           {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
         </div>
-        <button type="button" className="btn" onClick={() => importRef.current?.click()}>
+        <Button variant="outline" onClick={() => importRef.current?.click()}>
           <Icon name="upload" /> นำเข้า
-        </button>
+        </Button>
         <input ref={importRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files[0] && importFile(e.target.files[0])} />
-        <button type="button" className="btn btn-primary" onClick={exportJson}>
+        <Button onClick={exportJson}>
           <Icon name="download" /> ส่งออก JSON
-        </button>
+        </Button>
       </header>
 
       <aside className="toolbox">
@@ -702,8 +736,9 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                   <span className="mono small muted">{b.height} mm</span>
                 </button>
                 {bi === bandIdx && b.elements.length > 0 && (
-                  <ul className="layers">
-                    {b.elements.map((el, ei) => (
+                  <ul className="layers" aria-label="ลำดับซ้อน จากบนลงล่าง">
+                    {/* บนสุดแสดงก่อน — ตรงกับการทับกันบนกระดาษ */}
+                    {b.elements.map((el, ei) => ({ el, ei })).reverse().map(({ el, ei }) => (
                       <li key={ei}>
                         <button
                           type="button"
@@ -791,6 +826,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 onGroup={() => groupSelection(false)}
                 onUngroup={() => groupSelection(true)}
                 onDelete={removeSelected}
+                onReorder={reorderSelected}
               />
             )}
             {stageSize.w > 0 && (
@@ -899,6 +935,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 bandOptions={template.bands.map((b, i) => ({ value: i, label: bandTitle(b) }))}
                 bandIndex={bandIdx}
                 onMoveBand={moveSelectedTo}
+                onReorder={reorderSelected}
               />
               </>
             ) : band ? (

@@ -268,6 +268,26 @@ export function findFreeSpot(band, w, h, cw) {
   return { x: 0, y: bottom, growTo: bottom + h };
 }
 
+/**
+ * แผนการเปลี่ยนลำดับซ้อน (z-order) — คืน order = index เดิมเรียงใหม่ และ indexes = ตำแหน่งใหม่ของรายการที่เลือก
+ * mode: "front" (ไปบนสุด) · "back" (ไปล่างสุด) · "forward" (ขึ้นหนึ่งชั้น) · "backward" (ลงหนึ่งชั้น)
+ * รายการที่เลือกหลายตัวคงลำดับสัมพัทธ์ของกันและกัน
+ */
+export function zOrderPlan(n, selected, mode) {
+  const sel = new Set(selected.filter((i) => i >= 0 && i < n));
+  const arr = Array.from({ length: n }, (_, i) => i);
+  if (!sel.size) return { order: arr, indexes: [] };
+  if (mode === "front") arr.sort((a, b) => Number(sel.has(a)) - Number(sel.has(b)) || a - b);
+  else if (mode === "back") arr.sort((a, b) => Number(sel.has(b)) - Number(sel.has(a)) || a - b);
+  else if (mode === "forward") {
+    for (let i = n - 2; i >= 0; i--) if (sel.has(arr[i]) && !sel.has(arr[i + 1])) [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+  } else if (mode === "backward") {
+    for (let i = 1; i < n; i++) if (sel.has(arr[i]) && !sel.has(arr[i - 1])) [arr[i], arr[i - 1]] = [arr[i - 1], arr[i]];
+  }
+  const indexes = arr.map((v, p) => (sel.has(v) ? p : -1)).filter((p) => p >= 0);
+  return { order: arr, indexes };
+}
+
 export function historyReducer(state, a) {
   switch (a.type) {
     case "load":
@@ -449,6 +469,15 @@ export function historyReducer(state, a) {
         return { ...e, ...pos, ...(a.keepGroup ? {} : { group: undefined }) };
       });
       const t = mapBand(state.template, a.band, (b) => ({ ...b, elements: [...b.elements, ...added] }));
+      return commit(state, t, state.data, true);
+    }
+    case "reorderEls": {
+      // เปลี่ยนลำดับซ้อน (z-order) ของ element ใน band เดียว — index สูงอยู่บนสุด
+      const band = state.template.bands[a.band];
+      if (!band) return state;
+      const { order } = zOrderPlan(band.elements.length, a.indexes ?? [], a.mode);
+      if (order.every((v, i) => v === i)) return state;
+      const t = mapBand(state.template, a.band, (b) => ({ ...b, elements: order.map((i) => b.elements[i]) }));
       return commit(state, t, state.data, true);
     }
     case "removeEls": {

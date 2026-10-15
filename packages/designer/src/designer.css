@@ -1,26 +1,49 @@
 /* ThaiReport Report Designer — แถบเครื่องมือ | พื้นที่ band | property grid */
 
+/* Tailwind (utilities เท่านั้น ไม่ใช้ preflight เพื่อไม่ทับ CSS เดิม) + token แบบ shadcn/ui */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-background: var(--panel);
+  --color-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--sunken);
+  --color-muted: var(--sunken);
+  --color-muted-foreground: var(--muted);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--accent);
+  --color-destructive: var(--danger);
+  --radius-md: var(--radius-sm);
+  --font-sans: "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
 @font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
 @font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
 
 :root {
-  --bg: #e8ecf3;
+  /* โทนกลาง zinc (ตรงกับ shadcn/ui default) — ปรับสีแบรนด์ที่ --accent */
+  --bg: #f4f4f5;
   --panel: #ffffff;
-  --sunken: #f7f8fb;
-  --line: #dfe3ea;
-  --line-strong: #c3cad5;
-  --text: #171a21;
-  --muted: #697282;
-  --accent: #2f5bd6;
-  --accent-soft: #e8eeff;
-  --danger: #d4372c;
-  --danger-soft: #fdecea;
-  --ok: #12a150;
-  --warn: #b25e09;
+  --sunken: #f4f4f5;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --text: #18181b;
+  --muted: #71717a;
+  --accent: #2563eb;
+  --accent-soft: #eff4ff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --ok: #16a34a;
+  --warn: #b45309;
   --guide: #e0457b;
-  --radius: 7px;
-  --radius-sm: 5px;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 2px rgb(24 24 27 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(24 24 27 / 0.10), 0 2px 4px -2px rgb(24 24 27 / 0.06);
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
@@ -491,3 +514,66 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .view-tabs { overflow: visible; }
 .view-tabs .display-menu > .chip { height: 30px; padding: 0 10px; font-size: 12.5px; font-weight: 600; background: #fff; color: var(--ink-soft); border: 1px solid #d3d9e3; }
 .view-tabs .display-menu > .chip.is-on { background: var(--accent-soft); color: var(--accent-strong); border-color: #c5ceff; }
+
+/* ==========================================================================
+   รอบ: ลำดับซ้อน (z-order) · เส้นขึ้นหน้าใหม่ · sidebar ซ้าย–ขวา · หน้า preview
+   ========================================================================== */
+
+/* sidebar: กว้างขึ้นให้อ่านภาษาไทยสบาย และแบ่งหมวดชัดขึ้น */
+.app { grid-template-columns: 244px minmax(0, 1fr) 344px; }
+.toolbox { background: var(--panel); }
+.section { padding: 14px; }
+.section h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.add-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.add-tile {
+  flex-direction: row; justify-content: flex-start; gap: 8px;
+  padding: 9px 10px; font-size: 12.5px; font-weight: 600;
+  box-shadow: var(--shadow-sm); transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.add-tile:hover:not(:disabled) { transform: translateY(-1px); }
+.add-tile:active:not(:disabled) { transform: translateY(0); }
+.band-row-btn { border-radius: var(--radius-sm); padding: 7px 9px; }
+
+/* รายการชั้น: บนสุดอยู่บน (ตรงกับการทับบนกระดาษ) */
+.layers { margin: 4px 0 8px 8px; padding: 2px 0 2px 8px; border-left: 2px solid var(--line); }
+.layer { border-radius: var(--radius-sm); padding: 5px 7px; }
+.layer:hover { background: var(--sunken); }
+.layer.is-active { background: var(--accent-soft); color: #1d3aa0; font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+
+/* ปุ่มลำดับซ้อน: ใน Inspector แสดงเป็นตาราง 2×2 มีข้อความ, ในแถบเลือกหลายรายการแสดงเป็นไอคอน */
+.z-order { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.z-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel);
+  font-size: 12.5px; font-weight: 600; color: #3f4756; box-shadow: var(--shadow-sm);
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.z-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.z-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.z-order.is-compact { display: flex; gap: 1px; }
+.z-order.is-compact .z-btn { width: 30px; height: 30px; padding: 0; justify-content: center; border: 0; background: none; box-shadow: none; color: #e5e9f5; }
+.z-order.is-compact .z-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; border: 0; }
+.z-order.is-compact .z-btn span { display: none; }
+
+/* เส้นขึ้นหน้าใหม่บนกระดาษออกแบบ: เส้นประสีชมพูพร้อมป้ายบอกเลขหน้า */
+.page-cut {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 20; pointer-events: none;
+  border-top: 2px dashed #e0457b;
+}
+.page-cut span {
+  position: absolute; right: 8px; top: 4px; padding: 1px 8px; border-radius: 999px;
+  background: #e0457b; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 1.5; white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+
+/* พรีวิว: แต่ละหน้าเป็นการ์ดแยกกัน มีเส้นแบ่ง "ขึ้นหน้าใหม่" ระหว่างหน้า */
+.preview-pages { gap: 44px; padding: 28px 24px 64px; }
+.page-box { flex: none; border-radius: 4px; box-shadow: 0 1px 2px rgba(24, 24, 27, 0.08), 0 12px 32px -8px rgba(24, 24, 27, 0.22); }
+.page-box + .page-box::before {
+  content: "ขึ้นหน้าใหม่"; position: absolute; top: -32px; left: 50%; transform: translateX(-50%);
+  padding: 0 10px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.page-box + .page-box::after {
+  content: ""; position: absolute; top: -24px; left: 0; right: 0; border-top: 1px dashed var(--line-strong);
+}
+.page-no { bottom: -22px; font-weight: 600; }

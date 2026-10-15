@@ -34,6 +34,11 @@ const PATHS = {
   search: <g><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></g>,
   plus: <path d="M12 5v14M5 12h14" />,
   keyboard: <g><rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></g>,
+  /* ลำดับซ้อน (z-order): ลูกศรชี้ทิศทางและเส้นฐานของการจัดชั้น */
+  zFront: <g><path d="M4 4h16" /><path d="M12 20V9m0 0-4 4m4-4 4 4" /></g>,
+  zUp: <path d="M12 19V6m0 0-5 5m5-5 5 5" />,
+  zDown: <path d="M12 5v13m0 0-5-5m5 5 5-5" />,
+  zBack: <g><path d="M4 20h16" /><path d="M12 4v11m0 0-4-4m4 4 4-4" /></g>,
 };
 
 export function Icon({ name, size = 16, className }) {

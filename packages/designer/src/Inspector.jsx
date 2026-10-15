@@ -191,7 +191,35 @@ function optionLabel(f) {
 /**
  * @param {object} props.fields  ตัวเลือกฟิลด์ (ดู FieldSelect)
  */
-export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, bandOptions, bandIndex, onMoveBand }) {
+/** ปุ่มลำดับซ้อน: รายการด้านบนทับรายการด้านล่างใน band เดียวกัน */
+export const Z_ACTIONS = [
+  { mode: "front", label: "ไปบนสุด", icon: "zFront", keys: "⌘⇧]" },
+  { mode: "forward", label: "ขึ้นชั้น", icon: "zUp", keys: "⌘]" },
+  { mode: "backward", label: "ลงชั้น", icon: "zDown", keys: "⌘[" },
+  { mode: "back", label: "ไปล่างสุด", icon: "zBack", keys: "⌘⇧[" },
+];
+
+export function ZOrderButtons({ onReorder, compact = false }) {
+  return (
+    <div className={`z-order${compact ? " is-compact" : ""}`} role="group" aria-label="ลำดับซ้อน">
+      {Z_ACTIONS.map((a) => (
+        <button
+          key={a.mode}
+          type="button"
+          className="z-btn"
+          onClick={() => onReorder(a.mode)}
+          title={`${a.label} (${a.keys})`}
+          aria-label={a.label}
+        >
+          <Icon name={a.icon} size={15} />
+          {!compact && <span>{a.label}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, bandOptions, bandIndex, onMoveBand, onReorder }) {
   const set = (patch) => onChange(patch, false); // กดครั้งเดียว
   const live = (patch) => onChange(patch, true); // พิมพ์/ลาก/ปรับค่าต่อเนื่อง
   const appendExpr = (expr) => set({ text: `${el.text ?? ""}{{ ${expr} }}` });
@@ -213,6 +241,13 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
           </button>
         </div>
       </div>
+
+      {onReorder && (
+        <Section title="ลำดับซ้อน">
+          <ZOrderButtons onReorder={onReorder} />
+          <p className="hint small muted">รายการที่อยู่บนจะทับรายการที่อยู่ล่าง · ทั้งพรีวิวและ PDF ใช้ลำดับเดียวกัน</p>
+        </Section>
+      )}
 
       <Section title="ตำแหน่งและขนาด (mm)">
         <div className="pg-grid2">

@@ -4,16 +4,13 @@ import { groupMembers } from "./layout-tools.js";
 import { contentWidth, margins, pageSize } from "./layout.js";
 import { measureSelection, snapGrid, snapPosition, fmtMm } from "./snap.js";
 import { bindPreview, bindSegments, detailSourceOf, rowsOf, tableSourceOf } from "./bind.js";
+import { simulatePages, tableMm } from "./pagination.js";
 import { DND_KIND, hitBandArea, pointerToBandMm } from "./canvas/bandHit.js";
 
 export const RULER_H = 22;
 const TAG_W = 140;
 /** 1 pt = 0.3528 mm — ใช้คำนวณขนาดตัวอักษรให้ตรงกับกระดาษจริง */
 const PT_MM = 0.3528;
-/** ความสูงหนึ่งแถวตาราง (mm) โดยประมาณ: ตัวอักษร × 1.6 + padding บน-ล่าง 4.5pt */
-const rowMm = (size) => (size * 1.6 + 9) * PT_MM;
-/** ความสูงตาราง (หัว + ทุกแถวข้อมูล) mm */
-const tableMm = (el, nRows) => (1 + Math.max(1, nRows)) * rowMm(el.size ?? 10);
 /**
  * จำนวนแถวที่ใช้คิดความสูงกรอบตาราง
  * - "ตามจริง": ทุกแถว (ความสูงเท่าที่ engine จะพิมพ์โดยประมาณ)
@@ -58,7 +55,6 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   const m = useMemo(() => margins(template), [template]);
   const cw = contentWidth(template);
   const contentH = page.h - m.t - m.b;
-  const totalH = template.bands.reduce((a, b) => a + (b.height || 0), 0);
   const cwPx = cw * S;
 
   const templateRef = useRef(template);
@@ -75,6 +71,26 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   const [dragging, setDragging] = useState(false);
 
   const indexed = template.bands.map((b, i) => ({ b, i })).sort((a, c) => bandRank(a.b.type) - bandRank(c.b.type) || a.i - c.i);
+
+  // จำลองการขึ้นหน้าใหม่แบบ engine: band รายการตัดทีละแถว (แถวไม่ถูกหั่น) band อื่นตัดทั้งบล็อก
+  const pagination = simulatePages(indexed, data, contentH);
+  const flowTotal = pagination.totalMm;
+  const pagesEst = pagination.pages;
+  /** เหตุการณ์ขึ้นหน้าใหม่ของ band นี้ (รวมเป็นป้ายเดียวเมื่อเกิดหลายครั้งในรายการเดียวกัน) */
+  function breaksIn(bi) {
+    const evs = pagination.events.filter((ev) => ev.bi === bi);
+    if (!evs.length) return [];
+    const before = evs.filter((ev) => ev.kind === "before");
+    const between = evs.filter((ev) => ev.kind === "between");
+    const out = before.map((ev) => ({ key: `b-${ev.page}`, label: `ขึ้นหน้าใหม่ · หน้า ${ev.page}` }));
+    if (between.length === 1) out.push({ key: `w-${between[0].page}`, label: `ขึ้นหน้าใหม่ · หน้า ${between[0].page}` });
+    if (between.length > 1) {
+      const first = between[0].page;
+      const last = between.at(-1).page;
+      out.push({ key: `w-${first}`, label: `ขึ้นหน้าใหม่ ${between.length} ครั้งระหว่างแถว · หน้า ${first}–${last}` });
+    }
+    return out;
+  }
 
   useEffect(() => {
     bandAreasRef.current = template.bands.map((_, bi) => ({
@@ -386,6 +402,12 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
                 >
                   {showFrameLabel && <span className="frame-label">{bandTitle(b)}</span>}
 
+                  {breaksIn(bi).map(({ key, label }) => (
+                    <div key={key} className="page-cut" style={{ top: 0 }} title="ประมาณการจากความสูง band และจำนวนแถวข้อมูล — จำนวนหน้าจริงดูที่แท็บพรีวิว">
+                      <span>{label}</span>
+                    </div>
+                  ))}
+
                   {b.elements.map((el, ei) => (
                     <ElementBox
                       key={`${bi}-${ei}-${el.type}`}
@@ -440,8 +462,8 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
         )}
 
         <div className="design-foot mono small muted" style={{ marginLeft: TAG_W }}>
-          เนื้อหารวม {fmtMm(totalH)} / {fmtMm(contentH)} mm
-          {totalH > contentH + 0.01 && <span className="warn"> · เกินพื้นที่หน้า</span>}
+          เนื้อหารวม {fmtMm(flowTotal)} / {fmtMm(contentH)} mm · ประมาณ {pagesEst} หน้า
+          {flowTotal > contentH + 0.01 && <span className="warn"> · เกินพื้นที่หน้า ขึ้นหน้าใหม่ {pagesEst - 1} ครั้ง</span>}
         </div>
       </div>
     </div>
