@@ -2,8 +2,24 @@
   "name": "@thaireport/designer",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build"
+    "predev": "node scripts/copy-pdfjs.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-pdfjs.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@thaireport/client": "file:../client",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "canvas": "^3.2.3",
+    "vite": "^6.0.7"
   }
 }

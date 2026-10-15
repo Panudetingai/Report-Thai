@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0",
+  "page": { "size": "A4", "margin": [15, 15, 15, 15], "orientation": "portrait" },
+  "fonts": [{ "family": "Sarabun", "embed": true }, { "family": "Sarabun-Light", "embed": true }],
+  "user_dict": [],
+  "bands": [
+    { "type": "pageHeader", "height": 8, "elements": [
+      { "type": "text", "x": 0, "y": 1, "w": 180, "h": 6, "font": "Sarabun-Light", "size": 9, "align": "right", "text": "{{ company.name }}", "overflow": "wrap" }
+    ] },
+    { "type": "title", "height": 16, "elements": [
+      { "type": "text", "x": 0, "y": 2, "w": 180, "h": 10, "font": "Sarabun", "size": 16, "bold": true, "align": "center", "text": "ชื่อเอกสาร", "overflow": "wrap" }
+    ] },
+    { "type": "detail", "dataSource": "items", "height": 8, "elements": [
+      { "type": "table", "x": 0, "y": 0, "w": 180, "h": 8, "font": "Sarabun-Light", "size": 9, "data_source": "items", "header_repeat": true,
+        "columns": [
+          { "width": 20, "header": "ลำดับ", "field": "{{ item.no }}", "align": "center" },
+          { "width": 100, "header": "รายการ", "field": "{{ item.name }}", "align": "left" },
+          { "width": 30, "header": "จำนวน", "field": "{{ item.qty }}", "align": "right" },
+          { "width": 30, "header": "รวม", "field": "{{ item.amount }}", "align": "right" }
+        ] }
+    ] },
+    { "type": "summary", "gap_before": 4, "height": 18, "elements": [
+      { "type": "text", "x": 110, "y": 2, "w": 40, "h": 6, "font": "Sarabun-Light", "size": 9, "align": "right", "text": "รวมทั้งสิ้น", "overflow": "wrap" },
+      { "type": "text", "x": 150, "y": 2, "w": 30, "h": 6, "font": "Sarabun", "size": 9, "bold": true, "align": "right", "text": "{{ total }}", "overflow": "wrap" }
+    ] },
+    { "type": "pageFooter", "height": 8, "elements": [
+      { "type": "text", "x": 0, "y": 1, "w": 180, "h": 6, "font": "Sarabun-Light", "size": 8, "align": "right", "text": "หน้า {{ page }} / {{ pages }}", "overflow": "wrap" }
+    ] }
+  ]
+}
