@@ -1,5 +1,11 @@
 {
   "name": "@thaireport/client",
   "version": "0.1.0",
-  "main": "src/index.js"
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "peerDependencies": {},
+  "description": "ThaiReport browser client (WASM PDF engine)"
 }

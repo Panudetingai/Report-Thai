@@ -11,13 +11,15 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
         outline: "border border-input bg-background shadow-sm hover:bg-muted",
         secondary: "bg-muted text-foreground hover:bg-muted/70",
-        ghost: "hover:bg-muted",
+        ghost: "text-foreground hover:bg-muted",
+        toggle: "text-foreground hover:bg-muted aria-pressed:bg-accent-soft aria-pressed:text-primary",
         destructive: "text-destructive hover:bg-destructive/10",
       },
       size: {
         default: "h-8 px-3",
         sm: "h-7 px-2.5 text-xs",
         icon: "size-8",
+        "icon-sm": "size-7 [&_svg]:size-[15px]",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
@@ -25,7 +27,7 @@ const buttonVariants = cva(
 );
 
 const Button = React.forwardRef(({ className, variant, size, type = "button", ...props }, ref) => (
-  <button ref={ref} type={type} className={cn(buttonVariants({ variant, size }), className)} {...props} />
+  <button ref={ref} type={type} data-slot="button" className={cn(buttonVariants({ variant, size }), className)} {...props} />
 ));
 Button.displayName = "Button";
 

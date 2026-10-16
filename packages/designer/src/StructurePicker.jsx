@@ -1,5 +1,8 @@
 import React, { useRef, useState } from "react";
 import { Icon } from "./icons.jsx";
+import { Button } from "./components/ui/button.jsx";
+import { Input } from "./components/ui/input.jsx";
+import { NativeSelect } from "./components/ui/native-select.jsx";
 
 /**
  * ตัวเลือกโครงสร้างบนแถบบน: เลือกจาก "มาตรฐาน" หรือ "ของฉัน"
@@ -21,70 +24,63 @@ export function StructurePicker({ standard, user, activeId, currentName, onApply
   }
 
   return (
-    <div className="structure-picker">
-      <label className="template-pick">
-        <span className="small muted">แม่แบบรายงาน</span>
-        <select className="select structure-select" value={activeId} onChange={(e) => onApply(e.target.value)} aria-label="โครงสร้างเอกสาร">
-          {!standard.some((s) => s.id === activeId) && !user.some((s) => s.id === activeId) && (
-            <option value={activeId}>{currentName}</option>
-          )}
-          <optgroup label="มาตรฐาน">
-            {standard.map((s) => (
+    <div className="flex min-w-0 shrink-0 items-center gap-0.5">
+      <NativeSelect className="w-44 [&_select]:font-semibold" value={activeId} onChange={(e) => onApply(e.target.value)} aria-label="แม่แบบรายงาน" title="แม่แบบรายงาน">
+        {!standard.some((s) => s.id === activeId) && !user.some((s) => s.id === activeId) && <option value={activeId}>{currentName}</option>}
+        <optgroup label="มาตรฐาน">
+          {standard.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </optgroup>
+        {user.length > 0 && (
+          <optgroup label="ของฉัน">
+            {user.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
           </optgroup>
-          {user.length > 0 && (
-            <optgroup label="ของฉัน">
-              {user.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-      </label>
+        )}
+      </NativeSelect>
 
-      <div className="structure-tools">
-        {!saving ? (
-          <button type="button" className="icon-btn" onClick={() => setSaving(true)} title="บันทึกโครงสร้างปัจจุบันเป็นชื่อใหม่">
-            <Icon name="save" />
-          </button>
-        ) : (
-          <form className="save-form" onSubmit={commitSave}>
-            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ชื่อโครงสร้าง" aria-label="ชื่อโครงสร้าง" onKeyDown={(e) => e.key === "Escape" && setSaving(false)} />
-            <button type="submit" className="btn btn-primary" disabled={!name.trim()}>
-              บันทึก
-            </button>
-            <button type="button" className="icon-btn" onClick={() => setSaving(false)} title="ยกเลิก">
-              ×
-            </button>
-          </form>
-        )}
-        {activeIsUser && (
-          <button type="button" className="icon-btn danger" onClick={() => onDelete(activeId)} title="ลบโครงสร้างนี้">
-            <Icon name="trash" />
-          </button>
-        )}
-        <button type="button" className="icon-btn" onClick={onExport} title="ส่งออกเป็นไฟล์โครงสร้าง">
-          <Icon name="download" />
-        </button>
-        <button type="button" className="icon-btn" onClick={() => importRef.current?.click()} title="นำเข้าไฟล์โครงสร้าง">
-          <Icon name="upload" />
-        </button>
-        <input
-          ref={importRef}
-          type="file"
-          accept="application/json,.json"
-          hidden
-          onChange={(e) => {
-            if (e.target.files[0]) onImport(e.target.files[0]);
-            e.target.value = "";
-          }}
-        />
-      </div>
+      {!saving ? (
+        <Button variant="ghost" size="icon-sm" onClick={() => setSaving(true)} title="บันทึกเป็นแม่แบบของฉัน" aria-label="บันทึกเป็นแม่แบบของฉัน">
+          <Icon name="save" />
+        </Button>
+      ) : (
+        <form className="flex items-center gap-1" onSubmit={commitSave}>
+          <Input autoFocus className="w-36" value={name} onChange={(e) => setName(e.target.value)} placeholder="ชื่อแม่แบบ" aria-label="ชื่อแม่แบบ" onKeyDown={(e) => e.key === "Escape" && setSaving(false)} />
+          <Button type="submit" size="sm" disabled={!name.trim()}>
+            บันทึก
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setSaving(false)} title="ยกเลิก" aria-label="ยกเลิก">
+            <Icon name="x" />
+          </Button>
+        </form>
+      )}
+      {activeIsUser && (
+        <Button variant="ghost" size="icon-sm" className="hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(activeId)} title="ลบแม่แบบนี้" aria-label="ลบแม่แบบนี้">
+          <Icon name="trash" />
+        </Button>
+      )}
+      <Button variant="ghost" size="icon-sm" onClick={onExport} title="ส่งออกไฟล์แม่แบบ" aria-label="ส่งออกไฟล์แม่แบบ">
+        <Icon name="download" />
+      </Button>
+      <Button variant="ghost" size="icon-sm" onClick={() => importRef.current?.click()} title="นำเข้าไฟล์แม่แบบ" aria-label="นำเข้าไฟล์แม่แบบ">
+        <Icon name="upload" />
+      </Button>
+      <input
+        ref={importRef}
+        type="file"
+        accept="application/json,.json"
+        hidden
+        onChange={(e) => {
+          if (e.target.files[0]) onImport(e.target.files[0]);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }

@@ -7,6 +7,20 @@ import { bindPreview, designBindSegments, designDisplay, detailSourceOf, rowsOf,
 import { isDataImageSrc } from "./image-embed.js";
 import { simulatePages, tableMm } from "./pagination.js";
 import { DND_KIND, hitBandArea, pointerToBandMm } from "./canvas/bandHit.js";
+import { frameFor, isFrame, placeInFrame, settleOrder, withFrameChildren } from "./frames.js";
+import { frameLabel } from "./names.js";
+
+/** element ในกรอบ fi ที่อยู่ใต้เมาส์ (ชิ้นเล็กสุด = เจาะจงที่สุด) — ไม่มีคืน -1 */
+function childAtPoint(els, fi, x, y) {
+  let best = -1;
+  for (const j of withFrameChildren(els, [fi])) {
+    if (j === fi) continue;
+    const el = els[j];
+    if (x < el.x || x > el.x + el.w || y < el.y || y > el.y + el.h) continue;
+    if (best < 0 || el.w * el.h < els[best].w * els[best].h) best = j;
+  }
+  return best;
+}
 
 export const RULER_H = 24;
 export const RULER_W = 26;
@@ -78,7 +92,7 @@ const BAND_ACCENT = {
  * พื้นที่ออกแบบ — แต่ละ band เป็น frame (เหมือน Figma)
  * ลาก element ข้าม frame ได้ · ลากจากแถบเครื่องมือมาวางใน frame ได้
  */
-export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSelect, dispatch, S, onWheelZoom, onPlaced, onNotice, textScale = 1, sampleRows = 3, tableMode = "compact", onAddBand, onRemoveBand, showGrid = true }) {
+export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSelect, dispatch, S, onWheelZoom, onPlaced, onNotice, textScale = 1, sampleRows = 3, tableMode = "compact", onAddBand, onRemoveBand, showGrid = true, editing = null, onStartEdit, onCommitText, onCancelEdit, onContextMenu, onFrameText }) {
   const page = useMemo(() => pageSize(template), [template]);
   const m = useMemo(() => margins(template), [template]);
   const cw = contentWidth(template);
@@ -99,6 +113,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   const [readout, setReadout] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [frameHint, setFrameHint] = useState(null); // { bi, fi } กรอบที่จะรับ element ที่กำลังลาก
 
   const indexed = template.bands.map((b, i) => ({ b, i })).sort((a, c) => bandRank(a.b.type) - bandRank(c.b.type) || a.i - c.i);
 
@@ -141,12 +156,23 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
     return () => el.removeEventListener("wheel", onWheel);
   }, [onWheelZoom]);
 
+  function frameChildAt(e, bi, ei) {
+    const els = templateRef.current.bands[bi]?.elements ?? [];
+    if (!isFrame(els[ei])) return -1;
+    const r = bandAreasRef.current[bi]?.el?.getBoundingClientRect();
+    if (!r) return -1;
+    const k = sRef.current;
+    return childAtPoint(els, ei, (e.clientX - r.left) / k, (e.clientY - r.top) / k);
+  }
+
   function setBandAreaRef(bi, node) {
     if (!bandAreasRef.current[bi]) bandAreasRef.current[bi] = { bi, el: null };
     bandAreasRef.current[bi].el = node;
   }
 
   function beginDrag(e, mode, bi, ei) {
+    // คลิกขวา: ไม่ให้ band ด้านล่างล้างการเลือก — เมนูคลิกขวาจะเลือกรายการเอง
+    if (e.button === 2) e.stopPropagation();
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -161,11 +187,17 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
       onSelect(bi, ei, true);
       return;
     }
+    // คลิกในกรอบตรงที่มีของอยู่ = เลือกของชิ้นนั้น (แบบ Figma) แม้กรอบจะอยู่ชั้นบน — จับขอบกรอบเพื่อเลือกกรอบ
+    if (mode === "move") {
+      const child = frameChildAt(e, bi, ei);
+      if (child >= 0) ei = child;
+    }
     const inSel = bi === bandIdx && selIdxs.includes(ei);
     if (!inSel) onSelect(bi, ei);
     const els = templateRef.current.bands[bi].elements;
     // ลากรายการที่เลือกทั้งชุด (หรือทั้งกลุ่มของรายการนี้) พร้อมกัน — ใช้ได้ภายใน band เดียวกัน
-    const dragIdxs = inSel ? selIdxs : groupMembers(els, ei);
+    // ลากกรอบ = ของข้างในกรอบตามไปด้วย (แบบ Figma frame)
+    const dragIdxs = withFrameChildren(els, inSel ? selIdxs : groupMembers(els, ei));
     const el = templateRef.current.bands[bi].elements[ei];
     const area = bandAreasRef.current[bi]?.el;
     const r = area?.getBoundingClientRect();
@@ -219,7 +251,8 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
         let y = d.oy + (e.clientY - d.sy) / k;
         ({ x, y } = clampDragMm(x, y, band, cwNow, w, h));
 
-        const hit = hitBandArea(bandAreasRef.current, e.clientX, e.clientY);
+        // ลากหลายรายการ (รวมกรอบกับของข้างใน) อยู่ใน band เดิม ไม่แยกชุดข้าม band
+        const hit = d.multi ? null : hitBandArea(bandAreasRef.current, e.clientX, e.clientY);
         const targetBi = hit?.bi ?? d.bi;
         setDropTarget(hit?.bi ?? null);
         // element อื่นที่ลงบน band ที่มีตาราง: ยังไม่ย้ายระหว่างลาก — จะย้ายไป band ใต้ตารางตอนปล่อยเมาส์
@@ -238,6 +271,8 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
 
         const preview = snapPosition(band, cwNow, d.ei, x, y, w, h);
         setGuides({ bi: d.bi, x: preview.guideX, y: preview.guideY });
+        const fi = targetBi === d.bi ? frameFor(band.elements, { x: preview.x, y: preview.y, w, h }, idxs) : -1;
+        setFrameHint(fi >= 0 ? { bi: d.bi, fi } : null);
         if (blocked) {
           setReadout({ text: "ปล่อยเพื่อวางใต้ตาราง (band สรุป)", x: preview.x, y: preview.y, bi: targetBi });
         } else if (d.multi) {
@@ -310,6 +345,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
             onSelect(toBi, newEi);
           } else {
             const snapped = snapPosition(band, cwNow, d.ei, d.live.x, d.live.y, w, h);
+            const next = band.elements.map((el) => ({ ...el }));
             if (d.multi) {
               const ddx = snapped.x - d.ox;
               const ddy = snapped.y - d.oy;
@@ -318,9 +354,12 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
                 patch: { x: d.multi.starts[i].x + ddx, y: d.multi.starts[i].y + ddy },
               }));
               dispatch({ type: "patchEls", band: d.bi, changes, record: false });
+              for (const c of changes) Object.assign(next[c.ei], c.patch);
             } else {
               dispatch({ type: "setPos", band: d.bi, el: d.ei, x: snapped.x, y: snapped.y, record: false });
+              Object.assign(next[d.ei], { x: snapped.x, y: snapped.y });
             }
+            settleFrames(d.bi, next, d.ei);
           }
         }
       } else if (d?.mode === "resize" && d.started && e) {
@@ -330,6 +369,8 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
         const w = snapGrid(Math.min(Math.max(2, d.ow + (e.clientX - d.sx) / k), cwNow - d.ox));
         const h = snapGrid(Math.min(Math.max(d.oh > 0 ? 2 : 0, d.oh + (e.clientY - d.sy) / k), band.height - d.oy));
         dispatch({ type: "patchEl", band: d.bi, el: d.ei, patch: { w, h }, record: false });
+        const next = band.elements.map((el, i) => (i === d.ei ? { ...el, w, h } : el));
+        settleFrames(d.bi, next, d.ei);
       }
       dragRef.current = null;
       if (moveRaf.current) cancelAnimationFrame(moveRaf.current);
@@ -338,7 +379,15 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
       setGuides(null);
       setReadout(null);
       setDropTarget(null);
+      setFrameHint(null);
       setDragging(false);
+    }
+    /** หลังลาก/ย่อขยาย: กรอบที่ครอบของเดิมถอยไปอยู่ใต้ของนั้น แล้วเลือกรายการเดิมต่อ */
+    function settleFrames(bi, next, primary) {
+      const order = settleOrder(next);
+      if (!order) return;
+      dispatch({ type: "setOrder", band: bi, order, record: false });
+      onSelect(bi, order.indexOf(primary));
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -368,8 +417,17 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
     if (!area) return;
     const r = area.getBoundingClientRect();
     const k = sRef.current;
-    const x = snapGrid((e.clientX - r.left) / k - (el.w || 20) / 2);
-    const y = snapGrid((e.clientY - r.top) / k - (el.h || 8) / 2);
+    const px = (e.clientX - r.left) / k;
+    const py = (e.clientY - r.top) / k;
+    let x = snapGrid(px - (el.w || 20) / 2);
+    let y = snapGrid(py - (el.h || 8) / 2);
+    // วางลงในกรอบ → พอดีด้านในกรอบ (ข้อความกว้างเต็มกรอบ)
+    const fit = placeInFrame(templateRef.current.bands[bi].elements, el, px, py);
+    if (fit) {
+      ({ x, y } = fit);
+      el.w = fit.w;
+      el.h = fit.h;
+    }
     const plan = planPlacement(templateRef.current, bi, el.type);
     if (plan.error) {
       onNotice?.(plan.error);
@@ -502,6 +560,12 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
                   onDragOver={(e) => onBandDragOver(e, bi)}
                   onDragLeave={() => setDropTarget((cur) => (cur === bi ? null : cur))}
                   onDrop={(e) => onBandDrop(e, bi)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    onContextMenu?.(e, { bi, ei: null, x: snapGrid((e.clientX - r.left) / S), y: snapGrid((e.clientY - r.top) / S) });
+                  }}
                 >
                   {showFrameLabel && <span className="frame-label">{bandTitle(b)}</span>}
 
@@ -523,8 +587,26 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
                       heightRows={el.type === "table" ? heightRowsOf(rowsOf(data, tableSourceOf(el, b)).length, sampleRows, tableMode) : undefined}
                       dataRows={el.type === "table" ? rowsOf(data, tableSourceOf(el, b)) : []}
                       selected={isSel && selEl === ei}
+                      frameTarget={frameHint?.bi === bi && frameHint.fi === ei}
+                      onFrameText={(e) => {
+                        // ดับเบิลคลิกบนข้อความในกรอบ = แก้ข้อความนั้น · บนที่ว่างในกรอบ = เพิ่มข้อความใหม่
+                        const child = frameChildAt(e, bi, ei);
+                        const els = templateRef.current.bands[bi].elements;
+                        if (child >= 0 && els[child].type === "text") onStartEdit?.(bi, child);
+                        else if (child < 0) onFrameText?.(bi, ei);
+                      }}
                       onPointerDown={(e) => beginDrag(e, "move", bi, ei)}
                       onHandle={(e) => beginDrag(e, "resize", bi, ei)}
+                      editing={editing?.bi === bi && editing?.ei === ei && el.type === "text"}
+                      onStartEdit={() => onStartEdit?.(bi, ei)}
+                      onCommitText={(text) => onCommitText?.(bi, ei, text)}
+                      onCancelEdit={onCancelEdit}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const child = frameChildAt(e, bi, ei);
+                        onContextMenu?.(e, { bi, ei: child >= 0 ? child : ei });
+                      }}
                       S={S}
                     />
                   ))}
@@ -577,7 +659,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   );
 }
 
-function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, heightRows, textScale, selected, onPointerDown, onHandle, S }) {
+function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, heightRows, textScale, selected, onPointerDown, onHandle, S, editing, onStartEdit, onCommitText, onCancelEdit, onContextMenu, frameTarget, onFrameText }) {
   const kind = KIND_OF_TYPE[el.type] ?? "rect";
   const isLine = el.type === "line" || (el.h ?? 0) === 0;
   const hMm = el.type === "table" ? Math.max(el.h ?? 0, tableMm(el, heightRows ?? dataRows.length)) : el.h ?? 0;
@@ -597,11 +679,32 @@ function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, height
     style.borderWidth = Math.max(0.5, (el.width ?? 0.5) * 1.2);
     if (el.type === "ellipse") style.borderRadius = "50%";
   }
-  const cls = ["el", `el-${kind}`, selected && "is-selected", isLine && "is-line", tagInside && "tag-inside"].filter(Boolean).join(" ");
+  const cls = ["el", `el-${kind}`, selected && "is-selected", isLine && "is-line", tagInside && "tag-inside", editing && "is-editing", isFrame(el) && "is-frame", frameTarget && "is-frame-target"].filter(Boolean).join(" ");
   const textSize = Math.max(3, (el.size ?? 10) * PT_MM * S * textScale);
   return (
-    <div className={cls} style={style} data-el-i={elIndex} onPointerDown={onPointerDown}>
-      {el.type === "text" && showText && (
+    <div
+      className={cls}
+      style={style}
+      data-el-i={elIndex}
+      onPointerDown={editing ? undefined : onPointerDown}
+      onContextMenu={onContextMenu}
+      onDoubleClick={
+        el.type === "text" && !editing
+          ? (e) => (e.stopPropagation(), onStartEdit())
+          : isFrame(el)
+            ? (e) => (e.stopPropagation(), onFrameText(e))
+            : undefined
+      }
+    >
+      {editing && (
+        <InlineTextEditor
+          initial={el.text ?? ""}
+          style={{ fontSize: Math.max(11, textSize), color: el.color ?? "#222", textAlign: el.align ?? "left", fontWeight: el.bold ? 700 : 400, minHeight: hPx }}
+          onCommit={onCommitText}
+          onCancel={onCancelEdit}
+        />
+      )}
+      {el.type === "text" && showText && !editing && (
         <span
           className="el-content"
           style={{
@@ -615,7 +718,7 @@ function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, height
           <BoundText text={el.text} data={data} row={sampleRow} />
         </span>
       )}
-      {el.type === "text" && !showText && <span className="el-kind-fallback">{KIND_LABELS.text}</span>}
+      {el.type === "text" && !showText && !editing && <span className="el-kind-fallback">{KIND_LABELS.text}</span>}
       {el.type === "table" && <TableGhost el={el} scale={S * textScale} data={data} sampleRows={sampleRows} />}
       {el.type === "checkbox" && <CheckGlyph el={el} data={data} row={sampleRow} />}
       {el.type === "image" && isDataImageSrc(el.src) && (
@@ -625,10 +728,63 @@ function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, height
         <span className="el-img-hint">{el.src?.includes("{{") ? "[ฟิลด์รูป]" : "อัปโหลดรูป → คุณสมบัติ"}</span>
       )}
       {!isLine && (selected || S >= 0.6) && (
-        <span className="el-tag">{KIND_LABELS[el.type] ?? el.type}</span>
+        <span className="el-tag">{isFrame(el) ? frameLabel(el) : KIND_LABELS[el.type] ?? el.type}</span>
       )}
       {selected && hPx >= 10 && <span className="el-handle" onPointerDown={onHandle} />}
     </div>
+  );
+}
+
+/**
+ * แก้ข้อความบนกระดาษโดยตรง (ดับเบิลคลิก) — โฟกัสและเลือกข้อความทั้งหมดทันที
+ * Enter = บันทึก · Shift+Enter = ขึ้นบรรทัดใหม่ · Esc = ยกเลิก · คลิกที่อื่น = บันทึก
+ */
+function InlineTextEditor({ initial, style, onCommit, onCancel }) {
+  const ref = useRef(null);
+  const done = useRef(false);
+  const fit = () => {
+    const t = ref.current;
+    if (!t) return;
+    t.style.height = "auto";
+    t.style.height = `${t.scrollHeight}px`;
+  };
+  useEffect(() => {
+    const t = ref.current;
+    if (!t) return;
+    fit();
+    t.focus({ preventScroll: true });
+    t.select();
+  }, []);
+  const finish = (save) => {
+    if (done.current) return;
+    done.current = true;
+    if (save) onCommit(ref.current.value);
+    else onCancel();
+  };
+  return (
+    <textarea
+      ref={ref}
+      className="el-editor"
+      defaultValue={initial}
+      spellCheck={false}
+      aria-label="แก้ข้อความ"
+      style={style}
+      onInput={fit}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          finish(false);
+        } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          finish(true);
+        }
+      }}
+      onBlur={() => finish(true)}
+    />
   );
 }
 

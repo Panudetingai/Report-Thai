@@ -1,6 +1,7 @@
 /** สถานะ designer + undo/redo (ทุกการแก้ไขผ่าน reducer เดียว) */
 
 import { contentWidth as contentWidthMm } from "./layout.js";
+import { withFrameNames } from "./names.js";
 
 const HISTORY_LIMIT = 100;
 
@@ -49,7 +50,7 @@ export const KIND_LABELS = {
 export const ADD_KINDS = [
   { id: "text", label: "ข้อความ" },
   { id: "line", label: "เส้น" },
-  { id: "rect", label: "สี่เหลี่ยม" },
+  { id: "rect", label: "กรอบ" },
   { id: "ellipse", label: "วงรี" },
   { id: "image", label: "รูปภาพ" },
   { id: "table", label: "ตาราง" },
@@ -394,7 +395,8 @@ export function historyReducer(state, a) {
       const cw = contentWidthMm(plan.template);
       const w = Math.min(a.element.w ?? 0, cw);
       const spot = findFreeSpot(band, w, a.element.h ?? 0, cw);
-      const el = { ...a.element, w, x: spot.x, y: spot.y };
+      const [named] = withFrameNames(state.template, [a.element]); // กรอบใหม่ได้ชื่อ "กรอบ N"
+      const el = { ...named, w, x: spot.x, y: spot.y };
       const t = mapBand(plan.template, plan.band, (b) => ({
         ...b,
         height: Math.max(b.height, spot.growTo ?? 0),
@@ -416,7 +418,8 @@ export function historyReducer(state, a) {
               const spot = findFreeSpot(band, w, a.element.h ?? 0, cw);
               return { x: spot.x, y: spot.y, w, growTo: spot.growTo };
             })();
-      const el = { ...a.element, x: pos.x, y: pos.y, ...(pos.w != null ? { w: pos.w } : {}) };
+      const [named] = withFrameNames(state.template, [a.element]);
+      const el = { ...named, x: pos.x, y: pos.y, ...(pos.w != null ? { w: pos.w } : {}) };
       const t = mapBand(plan.template, plan.band, (b) => ({
         ...b,
         height: Math.max(b.height, pos.growTo ?? 0),
@@ -481,9 +484,9 @@ export function historyReducer(state, a) {
       const band = state.template.bands[a.band];
       if (!band || !a.elements?.length) return state;
       const cw = contentWidthMm(state.template);
-      const added = a.elements.map((e) => {
+      const added = withFrameNames(state.template, a.elements).map((e) => {
         const pos = clampEl({ ...e, x: (e.x ?? 0) + (a.offset ?? 0), y: (e.y ?? 0) + (a.offset ?? 0) }, band, cw);
-        return { ...e, ...pos, ...(a.keepGroup ? {} : { group: undefined }) };
+        return { ...e, ...pos, ...(a.keepGroup ? {} : { group: undefined, group_name: undefined }) };
       });
       const t = mapBand(state.template, a.band, (b) => ({ ...b, elements: [...b.elements, ...added] }));
       return commit(state, t, state.data, true);
@@ -496,6 +499,14 @@ export function historyReducer(state, a) {
       if (order.every((v, i) => v === i)) return state;
       const t = mapBand(state.template, a.band, (b) => ({ ...b, elements: order.map((i) => b.elements[i]) }));
       return commit(state, t, state.data, true);
+    }
+    case "setOrder": {
+      // จัดลำดับซ้อนตาม order (ตำแหน่งใหม่ → index เดิม) — ใช้หลังวางกรอบครอบของเดิม
+      const band = state.template.bands[a.band];
+      const n = band?.elements.length ?? 0;
+      if (!band || a.order?.length !== n || new Set(a.order).size !== n) return state;
+      const t = mapBand(state.template, a.band, (b) => ({ ...b, elements: a.order.map((i) => b.elements[i]) }));
+      return commit(state, t, state.data, a.record ?? false);
     }
     case "removeEls": {
       const drop = new Set(a.indexes ?? []);
