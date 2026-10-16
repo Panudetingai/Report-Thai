@@ -29,6 +29,10 @@ License กลางของโปรเจกต์: **MIT** (`LICENSE-MIT`, �
 | class-variance-authority 0.7.1 (designer UI) | Apache-2.0 | OK (2026-10-15) — เข้ากันได้กับ MIT |
 | clsx 2.1.1, tailwind-merge 3.7.0 (designer UI) | MIT | OK (2026-10-15) |
 | shadcn/ui pattern (`packages/designer/src/components/ui/button.jsx` เขียนเองตามรูปแบบ shadcn ไม่ได้ติดตั้ง package) | MIT (แนวทาง shadcn/ui) | OK (2026-10-15) — ถ้าคัดลอก source จริงของ shadcn มาเพิ่ม ให้ใส่ attribution MIT ด้วย |
+| axum 0.7.9, tokio 1.53.3, tower 0.5.3, http-body-util 0.1.5 (Phase 3, tr-server) | MIT | OK (2026-10-16, cargo metadata) |
+| sqlx 0.8.6 + sqlx-sqlite (Phase 3, tr-server, feature sqlite) | MIT OR Apache-2.0 | OK (2026-10-16, cargo metadata) |
+| libsqlite3-sys 0.30.1 (ตัว SQLite ที่ bundle มา) | MIT (ตัว SQLite เป็น public domain) | OK (2026-10-16) |
+| napi 2.16.17, napi-derive 2.16.13, napi-build 2.6.0 (Phase 3, tr-node) | MIT | OK (2026-10-16, cargo metadata) |
 | underskrift / pdf_signer | ห้ามรวมถ้าเป็น GPL | ต้องตรวจ Phase 0 ข้อ 5 |
 
 > ถ้าพบ GPL/AGPL ให้หยุดและรายงาน ห้ามใส่ใน core (spec ข้อ 0.5)
