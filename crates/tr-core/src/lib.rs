@@ -5,6 +5,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod aggregate;
+
 pub const MM_TO_PT: f32 = 72.0 / 25.4;
 
 #[inline]
@@ -194,6 +196,10 @@ pub struct Band {
     /// โหมดของ band ส่วนเนื้อหา (type = section): list = วนตามข้อมูล, content = วาดครั้งเดียว
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<BandMode>,
+    /// (groupHeader เท่านั้น) ฟิลด์ที่ใช้จัดกลุ่มแถวของ detail เช่น "item.category"
+    /// แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน — ข้อมูลต้องเรียงตามฟิลด์นี้มาก่อน (เหมือน Jasper)
+    #[serde(default, rename = "groupBy", alias = "group_by", skip_serializing_if = "Option::is_none")]
+    pub group_by: Option<String>,
 }
 
 /// โหมดของ band ส่วนเนื้อหา
@@ -239,6 +245,14 @@ impl Band {
         let has_table = self.elements.iter().any(|e| matches!(e, Element::Table(_)));
         if self.is_flow() && has_table && self.elements.len() > 1 {
             return Err("band ที่มีตารางต้องมีเฉพาะตาราง — วาง element อื่นไว้ band ก่อนหรือหลัง".to_string());
+        }
+        if let Some(g) = &self.group_by {
+            if self.band_type != BandType::GroupHeader {
+                return Err("groupBy ใช้ได้เฉพาะ band แบบ groupHeader".to_string());
+            }
+            if g.trim().is_empty() {
+                return Err("groupBy ว่างไม่ได้".to_string());
+            }
         }
         if self.band_type == BandType::Section && self.mode == Some(BandMode::List) {
             let ds = self.data_source.as_deref().unwrap_or("").trim();

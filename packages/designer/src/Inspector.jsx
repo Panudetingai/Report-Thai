@@ -733,6 +733,11 @@ export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, exist
         <Row label="ระยะก่อน">
           <Num value={band.gap_before ?? 0} min={0} suffix="mm" label="ระยะก่อน band" onChange={(v, l) => onPatch({ gap_before: v }, l)} />
         </Row>
+        {band.type === "groupHeader" && (
+          <Row label="จัดกลุ่มตาม">
+            <Text value={band.groupBy ?? ""} mono placeholder="item.category" onChange={(v) => onPatch({ groupBy: v.trim() ? v.trim() : null }, true)} />
+          </Row>
+        )}
         {band.type === "detail" || band.dataSource ? (
           <Row label="แหล่งข้อมูล">
             <Text value={band.dataSource ?? ""} mono placeholder="items" onChange={(v) => onPatch({ dataSource: v || null }, true)} />

@@ -683,6 +683,41 @@ pub fn render_template_counted(
     fonts: &HashMap<String, Vec<u8>>,
     base_dir: Option<&std::path::Path>,
 ) -> Result<(Vec<u8>, usize), String> {
+    let pages = paginate(template, data, fonts, base_dir)?;
+    let total = pages.len();
+    let (pw, ph) = template.page.size_pt();
+    let pdf = draw_pages(template, &pages, fonts, pw, ph)?;
+    Ok((pdf, total))
+}
+
+/// ข้อความที่จะพิมพ์ในแต่ละหน้า (ตามลำดับที่วาด) — ใช้ตรวจผลการจัดหน้าในเทสต์
+pub fn page_texts(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<String>>, String> {
+    let pages = paginate(template, data, fonts, base_dir)?;
+    Ok(pages
+        .iter()
+        .map(|ops| {
+            ops.iter()
+                .filter_map(|op| match op {
+                    Op::Text { content, .. } => Some(content.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect())
+}
+
+/// จัดหน้า: คืน ops ของแต่ละหน้า (ผ่านการนับหน้าสองรอบเพื่อให้ `pages` ในฟุตเตอร์ถูกต้อง)
+fn paginate(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<Op>>, String> {
     template.validate()?;
     let extra: Vec<&str> = template.user_dict.iter().map(|s| s.as_str()).collect();
 
@@ -733,13 +768,22 @@ pub fn render_template_counted(
         pw, ph, cx, cy, cw, ch, header_h, footer_h, 1,
     )?;
     let total = layout_pages.len().max(1);
-    let pages = layout_all(
+    layout_all(
         template, data, fonts, &extra, base_dir, &detail_rows,
         title, pheader, cheader, detail, summary, pfooter, gheader, gfooter,
         pw, ph, cx, cy, cw, ch, header_h, footer_h, total,
-    )?;
+    )
+}
 
-    // --- pass 2: วาดลง krilla ---
+/// วาด ops ของทุกหน้าลง PDF (krilla)
+fn draw_pages(
+    template: &Template,
+    pages: &[Vec<Op>],
+    fonts: &HashMap<String, Vec<u8>>,
+    pw: f32,
+    ph: f32,
+) -> Result<Vec<u8>, String> {
+    let _ = template;
     let mut document = Document::new();
     let mut meta = Metadata::new();
     meta = meta.creator("ThaiReport".to_string());
@@ -760,8 +804,7 @@ pub fn render_template_counted(
         .unwrap_or_else(|| k_reg.clone());
     let k_noto = noto_bytes.and_then(|b| Font::new(b.into(), 0));
 
-    for (pi, ops) in pages.iter().enumerate() {
-        let _ = pi;
+    for ops in pages.iter() {
         let mut page = document
             .start_page_with(PageSettings::from_wh(pw, ph).ok_or("ขนาดหน้าไม่ถูกต้อง")?);
         {
@@ -773,8 +816,7 @@ pub fn render_template_counted(
         }
         page.finish();
     }
-    let pdf = document.finish().map_err(|e| format!("สร้าง PDF ไม่สำเร็จ: {e:?}"))?;
-    Ok((pdf, pages.len()))
+    document.finish().map_err(|e| format!("สร้าง PDF ไม่สำเร็จ: {e:?}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -840,6 +882,10 @@ fn layout_all(
         Ok(max_h.max(mm_to_pt(b.height)))
     };
 
+    // จัดกลุ่มเมื่อ group header มี groupBy (แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน)
+    let group_key: Option<String> = gheader.and_then(|b| b.group_by.clone());
+    let grouped = group_key.is_some();
+
     // เปิดหน้าแรก: header
     {
         let pg = cur + 1;
@@ -856,8 +902,9 @@ fn layout_all(
             let h = emit_band(Some(b), ops, y, None, pg)?;
             y += h;
         }
-        if let Some(b) = gheader {
-            let h = emit_band(Some(b), ops, y, None, pg)?;
+        // จัดกลุ่ม: หัวกลุ่มถูกวางทีละกลุ่มในเนื้อเอกสาร (ดู flow_grouped) — ที่นี่วาดเฉพาะกรณีไม่จัดกลุ่ม
+        if let Some(b) = gheader.filter(|_| !grouped).map(|b| substitute_band(b, detail_rows, None)) {
+            let h = emit_band(Some(&b), ops, y, None, pg)?;
             y += h;
         }
     }
@@ -870,6 +917,10 @@ fn layout_all(
             cx, cy, top, header_h, footer_h, total_pages,
         };
         for b in template.bands.iter().filter(|b| b.is_flow()) {
+            if let (true, Some(gh), Some(key)) = (b.band_type == BandType::Detail, gheader, group_key.as_deref()) {
+                flow_grouped(&fc, b, gh, gfooter, key, detail_rows, &mut pages, &mut cur, &mut y)?;
+                continue;
+            }
             let rows = if b.band_type == BandType::Detail { Some(detail_rows) } else { None };
             flow_band(&fc, b, &mut pages, &mut cur, &mut y, rows)?;
         }
@@ -877,7 +928,9 @@ fn layout_all(
 
     // group footer + summary (ถ้าไม่พอขึ้นหน้าใหม่)
     // หมายเหตุ: gap_before ของ band จะถูกข้ามเมื่ออยู่ต้นหน้าใหม่ (กันช่องว่างลอยหัวกระดาษ)
-    for band in [gfooter, summary] {
+    let gfooter_all = gfooter.filter(|_| !grouped).map(|b| substitute_band(b, detail_rows, None));
+    let summary_all = summary.map(|b| substitute_band(b, detail_rows, None));
+    for band in [gfooter_all.as_ref(), summary_all.as_ref()] {
         if let Some(b) = band {
             let bh = mm_to_pt(b.height);
             let gap = mm_to_pt(b.gap_before);
@@ -1026,8 +1079,20 @@ fn flow_band(
     } else {
         vec![None]
     };
+    flow_rows(fc, b, &rows, pages, cur, y)
+}
+
+/// วาด band รายการทีละแถว (ขึ้นหน้าใหม่เมื่อไม่พอ)
+fn flow_rows(
+    fc: &FlowCtx,
+    b: &tr_core::Band,
+    rows: &[Option<serde_json::Value>],
+    pages: &mut Vec<Vec<Op>>,
+    cur: &mut usize,
+    y: &mut f32,
+) -> Result<(), String> {
     let bh = mm_to_pt(b.height);
-    for row in &rows {
+    for row in rows {
         // ไม่พอที่ → ขึ้นหน้าใหม่ (ถ้าอยู่ต้นหน้าแล้วยังไม่พอ ก็วางเลย กันวนไม่รู้จบ)
         if *y + bh > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
             fc.page_break(pages, cur, y)?;
@@ -1039,6 +1104,66 @@ fn flow_band(
         *y += h;
     }
     Ok(())
+}
+
+/// band รายการที่จัดกลุ่ม: หัวกลุ่ม → แถวในกลุ่ม → ท้ายกลุ่ม (รวมค่าเฉพาะในกลุ่ม)
+/// หัวกลุ่มจะไม่ถูกทิ้งไว้ท้ายหน้า: ถ้าไม่พอกับแถวแรก ขึ้นหน้าใหม่ก่อน
+#[allow(clippy::too_many_arguments)]
+fn flow_grouped(
+    fc: &FlowCtx,
+    detail: &tr_core::Band,
+    gh: &tr_core::Band,
+    gf: Option<&tr_core::Band>,
+    key: &str,
+    rows: &[Option<serde_json::Value>],
+    pages: &mut Vec<Vec<Op>>,
+    cur: &mut usize,
+    y: &mut f32,
+) -> Result<(), String> {
+    if detail.elements.iter().any(|e| matches!(e, Element::Table(_))) {
+        return Err("band รายการที่จัดกลุ่มยังไม่รองรับตาราง — ใช้ band รายการที่เป็นข้อความ/กรอบแทน".to_string());
+    }
+    for (gval, grows) in tr_core::aggregate::split_groups(rows, key) {
+        let n = grows.len();
+        let head = substitute_band(gh, &grows, Some((&gval, n)));
+        let gap = if *y > fc.top + 0.01 { mm_to_pt(head.gap_before) } else { 0.0 };
+        if *y + gap + mm_to_pt(head.height) + mm_to_pt(detail.height) > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+            fc.page_break(pages, cur, y)?;
+        }
+        *y += if *y > fc.top + 0.01 { gap } else { 0.0 };
+        let mut ops = Vec::new();
+        let h = fc.emit(&head, &mut ops, *y, None, *cur + 1)?;
+        pages[*cur].extend(ops);
+        *y += h;
+
+        flow_rows(fc, detail, &grows, pages, cur, y)?;
+
+        if let Some(gf) = gf {
+            let foot = substitute_band(gf, &grows, Some((&gval, n)));
+            let gap = if *y > fc.top + 0.01 { mm_to_pt(foot.gap_before) } else { 0.0 };
+            if *y + gap + mm_to_pt(foot.height) > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+                fc.page_break(pages, cur, y)?;
+            }
+            *y += if *y > fc.top + 0.01 { gap } else { 0.0 };
+            let mut ops = Vec::new();
+            let h = fc.emit(&foot, &mut ops, *y, None, *cur + 1)?;
+            pages[*cur].extend(ops);
+            *y += h;
+        }
+    }
+    Ok(())
+}
+
+/// สำเนาของ band ที่แทนค่ารวม (sum/count/…) และ group.* ด้วยค่าจริงของแถวที่ส่งเข้ามา
+/// ตัวจัดหน้าและตัวผูกค่าปกติไม่ต้องรู้เรื่องการรวมค่า
+fn substitute_band(b: &tr_core::Band, rows: &[Option<serde_json::Value>], group: Option<(&str, usize)>) -> tr_core::Band {
+    let mut out = b.clone();
+    for el in &mut out.elements {
+        if let Element::Text(t) = el {
+            t.text = tr_core::aggregate::bind_aggregates(&t.text, rows, group);
+        }
+    }
+    out
 }
 
 fn content_h(template: &Template, cy: f32, footer_h: f32) -> f32 {

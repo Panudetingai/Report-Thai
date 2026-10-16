@@ -21,6 +21,7 @@ const TABS = [
 const REASON_TEXT = {
   missing: "ไม่พบในข้อมูล",
   unsupported: "ไม่รองรับฟังก์ชัน",
+  aggregate: "รวมค่านอกกลุ่ม/สรุป",
   norows: "ไม่มีแถวข้อมูล",
 };
 

@@ -341,10 +341,11 @@ function selIndexes(ei, extra, n) {
 const PROBLEM_MSG = {
   missing: "ตัวแปรไม่พบในข้อมูล",
   unsupported: "นิพจน์หรือตัวกรองยังไม่รองรับใน engine",
+  aggregate: "ใช้รวมค่าได้เฉพาะ band หัวกลุ่ม ท้ายกลุ่ม หรือสรุป",
   norows: "ยังไม่มีแถวข้อมูลในชุดนี้ — ตรวจไม่ครบ",
   embed: "รูปยังไม่ฝังในเทมเพลต — อัปโหลด PNG/JPEG (ลิงก Figma ใช้โดยตรงไม่ได้)",
 };
-const PROBLEM_SEV = { missing: "error", unsupported: "warning", norows: "info", embed: "warning" };
+const PROBLEM_SEV = { missing: "error", unsupported: "warning", aggregate: "warning", norows: "info", embed: "warning" };
 
 function problemRows(problems) {
   return problems.map((p, i) => ({
@@ -564,7 +565,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   // ฟิลด์ข้อมูลและการผูกกับเทมเพลต — คำนวณใหม่เมื่อ template หรือข้อมูลเปลี่ยน
   const catalog = useMemo(() => buildCatalog(data), [data]);
   const analysis = useMemo(() => analyzeTemplate(template, data), [template, data]);
-  const problemCount = analysis.problems.filter((p) => p.reason === "missing" || p.reason === "unsupported" || p.reason === "embed").length;
+  const problemCount = analysis.problems.filter((p) => ["missing", "unsupported", "aggregate", "embed"].includes(p.reason)).length;
 
   useEffect(() => {
     if (analysis.problems.length > 0) setShowAnalyzer(true);

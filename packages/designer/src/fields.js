@@ -128,7 +128,14 @@ export function analyzeTemplate(template, data) {
 }
 
 /** เหตุผลที่ผูกไม่ได้ของ use หนึ่งจุด หรือ null ถ้าผูกได้ */
+const AGG_FN = /^(sum|count|avg|min|max)\(/;
+const GROUP_BANDS = ["groupHeader", "groupFooter", "summary"];
+
 function checkUse(u, data) {
+  // รวมค่า/กลุ่ม: engine แทนค่าเฉพาะใน band หัวกลุ่ม ท้ายกลุ่ม และสรุป
+  if (AGG_FN.test(u.expr) || u.expr === "group.value" || u.expr === "group.count") {
+    return GROUP_BANDS.includes(u.bandType) ? null : "aggregate";
+  }
   if (u.expr.includes("(") || u.expr.includes("|")) return "unsupported";
   if (u.source == null) {
     return resolveExpr(u.expr, data).ok ? null : "missing";
