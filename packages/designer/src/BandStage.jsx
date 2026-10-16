@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BAND_LABELS, BAND_ORDER, KIND_LABELS, bandRank, bandTitle, needsFollow, newElement, planMove, planPlacement } from "./state.js";
+import { BAND_LABELS, BAND_ORDER, BAND_STD, KIND_LABELS, bandRank, bandTitle, needsFollow, newElement, planMove, planPlacement } from "./state.js";
 import { groupMembers } from "./layout-tools.js";
 import { contentWidth, margins, pageSize } from "./layout.js";
 import { measureSelection, snapGrid, snapPosition, fmtMm } from "./snap.js";
-import { bindPreview, bindSegments, detailSourceOf, rowsOf, tableSourceOf } from "./bind.js";
+import { bindPreview, designBindSegments, designDisplay, detailSourceOf, rowsOf, scanExprs, tableSourceOf } from "./bind.js";
+import { isDataImageSrc } from "./image-embed.js";
 import { simulatePages, tableMm } from "./pagination.js";
 import { DND_KIND, hitBandArea, pointerToBandMm } from "./canvas/bandHit.js";
 
-export const RULER_H = 22;
-const TAG_W = 140;
+export const RULER_H = 24;
+export const RULER_W = 26;
+export const TAG_W = 128;
 /** 1 pt = 0.3528 mm — ใช้คำนวณขนาดตัวอักษรให้ตรงกับกระดาษจริง */
 const PT_MM = 0.3528;
 /**
@@ -30,10 +32,36 @@ function bandMm(b, data, sampleRows, mode) {
   }
   return h;
 }
-/** ความสูงแถวขั้นต่ำ — กัน label band ทับกันเมื่อซูมเล็ก */
-const TAG_ROW_MIN_PX = 46;
 const BAND_AREA_MIN_PX = 6;
 const KIND_OF_TYPE = { text: "text", line: "line", rectangle: "rect", ellipse: "ellipse", image: "image", table: "table", checkbox: "checkbox" };
+
+function clearDragTransforms(areas) {
+  for (const { el } of areas) {
+    el?.querySelectorAll(".el.is-drag-live").forEach((node) => {
+      node.style.transform = "";
+      node.classList.remove("is-drag-live");
+    });
+  }
+}
+
+function paintDragTransform(area, idxs, ddxMm, ddyMm, scale) {
+  if (!area) return;
+  const tx = ddxMm * scale;
+  const ty = ddyMm * scale;
+  for (const i of idxs) {
+    const node = area.querySelector(`.el[data-el-i="${i}"]`);
+    if (!node) continue;
+    node.classList.add("is-drag-live");
+    node.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+  }
+}
+
+function clampDragMm(x, y, band, cw, w, h) {
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, cw - w)),
+    y: Math.min(Math.max(0, y), Math.max(0, band.height - h)),
+  };
+}
 
 const BAND_ACCENT = {
   pageHeader: "#0d9488",
@@ -50,7 +78,7 @@ const BAND_ACCENT = {
  * พื้นที่ออกแบบ — แต่ละ band เป็น frame (เหมือน Figma)
  * ลาก element ข้าม frame ได้ · ลากจากแถบเครื่องมือมาวางใน frame ได้
  */
-export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSelect, dispatch, S, onWheelZoom, onPlaced, onNotice, textScale = 1, sampleRows = 3, tableMode = "compact", onAddBand, onRemoveBand }) {
+export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSelect, dispatch, S, onWheelZoom, onPlaced, onNotice, textScale = 1, sampleRows = 3, tableMode = "compact", onAddBand, onRemoveBand, showGrid = true }) {
   const page = useMemo(() => pageSize(template), [template]);
   const m = useMemo(() => margins(template), [template]);
   const cw = contentWidth(template);
@@ -64,6 +92,8 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   const scrollRef = useRef(null);
   const dragRef = useRef(null);
   const bandAreasRef = useRef([]);
+  const moveRaf = useRef(0);
+  const lastPtr = useRef(null);
 
   const [guides, setGuides] = useState(null);
   const [readout, setReadout] = useState(null);
@@ -161,7 +191,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   }
 
   useEffect(() => {
-    function onMove(e) {
+    function applyMove(e) {
       const d = dragRef.current;
       if (!d) return;
       // บันทึก undo เมื่อขยับจริงเท่านั้น (คลิกเฉยๆ จะไม่สร้างขั้นว่าง)
@@ -180,98 +210,131 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
         return;
       }
 
-      if (d.multi) {
-        // ลากหลายรายการใน band เดียว: รายการหลักใช้เส้นนำสายตา แล้วทุกตัวขยับตามระยะเดียวกัน
-        const primary = snapPosition(t.bands[d.bi], contentWidth(t), d.ei, d.ox + (e.clientX - d.sx) / k, d.oy + (e.clientY - d.sy) / k, d.ow, d.oh);
-        const ddx = primary.x - d.ox;
-        const ddy = primary.y - d.oy;
-        const changes = d.multi.idxs.map((i) => ({ ei: i, patch: { x: d.multi.starts[i].x + ddx, y: d.multi.starts[i].y + ddy } }));
-        dispatch({ type: "patchEls", band: d.bi, changes, record: false });
-        setGuides({ bi: d.bi, x: primary.guideX, y: primary.guideY });
-        setReadout({ text: `${d.multi.idxs.length} รายการ · X ${fmtMm(primary.x)} · Y ${fmtMm(primary.y)} mm`, x: primary.x, y: primary.y, bi: d.bi });
-        return;
-      }
-
-      const hit = hitBandArea(bandAreasRef.current, e.clientX, e.clientY);
-      const targetBi = hit?.bi ?? d.bi;
-      setDropTarget(hit?.bi ?? null);
-
-      const band = t.bands[targetBi];
-      const cwNow = contentWidth(t);
-      // element อื่นที่ลงบน band ที่มีตาราง: ยังไม่ย้ายระหว่างลาก — จะย้ายไป band ใต้ตารางตอนปล่อยเมาส์
-      const movingEl = t.bands[d.bi]?.elements[d.ei];
-      const blocked = d.mode === "move" && targetBi !== d.bi && !!movingEl && needsFollow(t, targetBi, movingEl.type);
-      d.pendingTo = blocked ? targetBi : null;
-      if (blocked) {
-        setDropTarget(targetBi);
-        setGuides(null);
-        setReadout({ text: "ปล่อยเพื่อวางใต้ตาราง (band สรุป)", x: 0, y: 0, bi: targetBi });
-        return;
-      }
-      let x;
-      let y;
-      if (hit) {
-        const p = pointerToBandMm(e.clientX, e.clientY, hit.rect, k, d.grabX, d.grabY);
-        x = p.x;
-        y = p.y;
-      } else {
-        x = d.ox + (e.clientX - d.sx) / k;
-        y = d.oy + (e.clientY - d.sy) / k;
-      }
-
-      if (d.mode === "move" && targetBi !== d.bi) {
-        const snapped = snapPosition(band, cwNow, -1, x, y, d.ow, d.oh);
-        const newEi = t.bands[targetBi].elements.length;
-        dispatch({
-          type: "transferEl",
-          fromBand: d.bi,
-          fromEl: d.ei,
-          toBand: targetBi,
-          x: snapped.x,
-          y: snapped.y,
-          record: false,
-        });
-        onSelect(targetBi, newEi);
-        dragRef.current = {
-          ...d,
-          bi: targetBi,
-          ei: newEi,
-          ox: snapped.x,
-          oy: snapped.y,
-          sx: e.clientX,
-          sy: e.clientY,
-        };
-        setGuides({ bi: targetBi, x: snapped.guideX, y: snapped.guideY });
-        setReadout({
-          text: `${bandTitle(band)} · X ${fmtMm(snapped.x)} · Y ${fmtMm(snapped.y)} mm`,
-          x: snapped.x,
-          y: snapped.y,
-          bi: targetBi,
-        });
-        return;
-      }
-
       if (d.mode === "move") {
-        const p = snapPosition(band, cwNow, d.ei, x, y, d.ow, d.oh);
-        dispatch({ type: "transferEl", fromBand: d.bi, fromEl: d.ei, toBand: d.bi, x: p.x, y: p.y, record: false });
-        setGuides({ bi: d.bi, x: p.guideX, y: p.guideY });
-        setReadout({ text: `X ${fmtMm(p.x)} · Y ${fmtMm(p.y)} mm`, x: p.x, y: p.y, bi: d.bi });
-      } else {
-        const w = Math.min(Math.max(2, snapGrid(d.ow + (e.clientX - d.sx) / k)), cwNow - d.ox);
-        const h = Math.min(Math.max(d.oh > 0 ? 2 : 0, snapGrid(d.oh + (e.clientY - d.sy) / k)), band.height - d.oy);
-        dispatch({ type: "patchEl", band: d.bi, el: d.ei, patch: { w, h }, record: false });
-        setReadout({ text: `W ${fmtMm(w)} · H ${fmtMm(h)} mm`, x: d.ox + w, y: d.oy + h, bi: d.bi });
+        const band = t.bands[d.bi];
+        const cwNow = contentWidth(t);
+        const w = d.ow ?? 0;
+        const h = d.oh ?? 0;
+        let x = d.ox + (e.clientX - d.sx) / k;
+        let y = d.oy + (e.clientY - d.sy) / k;
+        ({ x, y } = clampDragMm(x, y, band, cwNow, w, h));
+
+        const hit = hitBandArea(bandAreasRef.current, e.clientX, e.clientY);
+        const targetBi = hit?.bi ?? d.bi;
+        setDropTarget(hit?.bi ?? null);
+        // element อื่นที่ลงบน band ที่มีตาราง: ยังไม่ย้ายระหว่างลาก — จะย้ายไป band ใต้ตารางตอนปล่อยเมาส์
+        const movingEl = t.bands[d.bi]?.elements[d.ei];
+        const blocked = targetBi !== d.bi && !!movingEl && needsFollow(t, targetBi, movingEl.type);
+        d.pendingTo = blocked ? targetBi : null;
+        d.dropBi = targetBi;
+
+        const idxs = d.multi?.idxs ?? [d.ei];
+        const ddx = x - d.ox;
+        const ddy = y - d.oy;
+        d.live = { x, y, ddx, ddy };
+
+        clearDragTransforms(bandAreasRef.current);
+        paintDragTransform(bandAreasRef.current[d.bi]?.el, idxs, ddx, ddy, k);
+
+        const preview = snapPosition(band, cwNow, d.ei, x, y, w, h);
+        setGuides({ bi: d.bi, x: preview.guideX, y: preview.guideY });
+        if (blocked) {
+          setReadout({ text: "ปล่อยเพื่อวางใต้ตาราง (band สรุป)", x: preview.x, y: preview.y, bi: targetBi });
+        } else if (d.multi) {
+          setReadout({
+            text: `${d.multi.idxs.length} รายการ · X ${fmtMm(preview.x)} · Y ${fmtMm(preview.y)} mm`,
+            x: preview.x,
+            y: preview.y,
+            bi: d.bi,
+          });
+        } else {
+          setReadout({ text: `X ${fmtMm(preview.x)} · Y ${fmtMm(preview.y)} mm`, x: preview.x, y: preview.y, bi: d.bi });
+        }
+        return;
+      }
+
+      {
+        const band = t.bands[d.bi];
+        const cwNow = contentWidth(t);
+        const rw = Math.min(Math.max(2, d.ow + (e.clientX - d.sx) / k), cwNow - d.ox);
+        const rh = Math.min(Math.max(d.oh > 0 ? 2 : 0, d.oh + (e.clientY - d.sy) / k), band.height - d.oy);
+        dispatch({ type: "patchEl", band: d.bi, el: d.ei, patch: { w: rw, h: rh }, record: false });
+        setReadout({ text: `W ${fmtMm(rw)} · H ${fmtMm(rh)} mm`, x: d.ox + rw, y: d.oy + rh, bi: d.bi });
       }
     }
-    function onUp() {
+    function onMove(e) {
+      lastPtr.current = e;
       const d = dragRef.current;
-      if (d?.mode === "move" && d.pendingTo != null) {
-        // ไม่บันทึกขั้นใหม่: ขั้น undo ของการลากถูกบันทึกไว้แล้วตอนเริ่มขยับ
-        dispatch({ type: "transferEl", fromBand: d.bi, fromEl: d.ei, toBand: d.pendingTo, x: 0, y: 0, record: false });
-        const plan = planMove(templateRef.current, d.bi, d.ei, d.pendingTo);
-        if (!plan.error) onSelect(plan.band, plan.elIndex);
+      if (d?.mode === "move") {
+        applyMove(e);
+        return;
+      }
+      if (moveRaf.current) return;
+      moveRaf.current = requestAnimationFrame(() => {
+        moveRaf.current = 0;
+        if (lastPtr.current) applyMove(lastPtr.current);
+      });
+    }
+    function onUp(e) {
+      const d = dragRef.current;
+      clearDragTransforms(bandAreasRef.current);
+      if (d?.mode === "move" && d.started && d.live) {
+        const t = templateRef.current;
+        const k = sRef.current;
+        const band = t.bands[d.bi];
+        const cwNow = contentWidth(t);
+        const w = d.ow ?? 0;
+        const h = d.oh ?? 0;
+
+        if (d.pendingTo != null) {
+          dispatch({ type: "transferEl", fromBand: d.bi, fromEl: d.ei, toBand: d.pendingTo, x: 0, y: 0, record: false });
+          const plan = planMove(t, d.bi, d.ei, d.pendingTo);
+          if (!plan.error) onSelect(plan.band, plan.elIndex);
+        } else {
+          const hit = e ? hitBandArea(bandAreasRef.current, e.clientX, e.clientY) : null;
+          const toBi = d.dropBi ?? hit?.bi ?? d.bi;
+          if (toBi !== d.bi && hit) {
+            const pos = pointerToBandMm(e.clientX, e.clientY, hit.rect, k, d.grabX, d.grabY);
+            const bandTo = t.bands[toBi];
+            const snapped = snapPosition(bandTo, contentWidth(t), -1, pos.x, pos.y, w, h);
+            const newEi = bandTo.elements.length;
+            dispatch({
+              type: "transferEl",
+              fromBand: d.bi,
+              fromEl: d.ei,
+              toBand: toBi,
+              x: snapped.x,
+              y: snapped.y,
+              record: false,
+            });
+            onSelect(toBi, newEi);
+          } else {
+            const snapped = snapPosition(band, cwNow, d.ei, d.live.x, d.live.y, w, h);
+            if (d.multi) {
+              const ddx = snapped.x - d.ox;
+              const ddy = snapped.y - d.oy;
+              const changes = d.multi.idxs.map((i) => ({
+                ei: i,
+                patch: { x: d.multi.starts[i].x + ddx, y: d.multi.starts[i].y + ddy },
+              }));
+              dispatch({ type: "patchEls", band: d.bi, changes, record: false });
+            } else {
+              dispatch({ type: "setPos", band: d.bi, el: d.ei, x: snapped.x, y: snapped.y, record: false });
+            }
+          }
+        }
+      } else if (d?.mode === "resize" && d.started && e) {
+        const band = templateRef.current.bands[d.bi];
+        const cwNow = contentWidth(templateRef.current);
+        const k = sRef.current;
+        const w = snapGrid(Math.min(Math.max(2, d.ow + (e.clientX - d.sx) / k), cwNow - d.ox));
+        const h = snapGrid(Math.min(Math.max(d.oh > 0 ? 2 : 0, d.oh + (e.clientY - d.sy) / k), band.height - d.oy));
+        dispatch({ type: "patchEl", band: d.bi, el: d.ei, patch: { w, h }, record: false });
       }
       dragRef.current = null;
+      if (moveRaf.current) cancelAnimationFrame(moveRaf.current);
+      moveRaf.current = 0;
+      lastPtr.current = null;
       setGuides(null);
       setReadout(null);
       setDropTarget(null);
@@ -282,6 +345,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      if (moveRaf.current) cancelAnimationFrame(moveRaf.current);
     };
   }, [dispatch, onSelect]);
 
@@ -318,30 +382,66 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
   }
 
   const ticks = Array.from({ length: Math.floor(cw / 5) + 1 }, (_, i) => i * 5);
+  const bandMetrics = useMemo(() => {
+    let topMm = 0;
+    return indexed.map(({ b, i: bi }) => {
+      const hMm = bandMm(b, data, sampleRows, tableMode);
+      const row = { bi, hMm, topMm };
+      topMm += hMm;
+      return row;
+    });
+  }, [template, data, sampleRows, tableMode]);
+  const stackMm = bandMetrics.at(-1) ? bandMetrics.at(-1).topMm + bandMetrics.at(-1).hMm : 0;
+  const stackPx = stackMm * S;
+  const pagePx = contentH * S;
+  const vTicks = Array.from({ length: Math.floor(Math.max(stackMm, contentH) / 5) + 1 }, (_, i) => i * 5);
+  const sheetW = RULER_W + TAG_W + m.l * S + cwPx + m.r * S;
+
   const sel = selEl != null ? template.bands[bandIdx]?.elements[selEl] : null;
   const showDims = S >= 0.52 && !dragging;
   const annotations = sel && showDims ? measureSelection(template.bands[bandIdx], selEl) : [];
   const compactUi = S < 0.68;
+  const gridClass = showGrid ? " show-grid" : " hide-grid";
 
   return (
-    <div className="design-scroll" ref={scrollRef} onPointerDown={() => onSelect(bandIdx, null)}>
+    <div className={`design-scroll${dragging ? " is-dragging" : ""}`} ref={scrollRef} onPointerDown={() => onSelect(bandIdx, null)}>
       <div
-        className="design-frame design-sheet"
-        style={{ width: TAG_W + m.l * S + cwPx + m.r * S + 32, "--zoom": S }}
+        className={`design-frame design-sheet${dragging ? " is-dragging" : ""}`}
+        style={{ width: sheetW + 24, "--zoom": S, "--cell-mm": `${5 * S}px` }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="hruler" style={{ marginLeft: TAG_W + m.l * S, width: cwPx, height: RULER_H }}>
-          {ticks.map((mm) => (
-            <span key={mm} className={`htick${mm % 10 === 0 ? " major" : ""}`} style={{ left: mm * S }}>
-              {mm % 10 === 0 && mm < cw && <em>{mm}</em>}
-            </span>
-          ))}
-        </div>
+        <div className="sheet-columns">
+          <div className="ruler-col" style={{ width: RULER_W }}>
+            <div className="ruler-corner" style={{ height: RULER_H }} aria-hidden="true" />
+            <div className="vruler" style={{ height: Math.max(stackPx, pagePx) }}>
+              {vTicks.map((mm) => (
+                <span key={mm} className={`vtick${mm % 10 === 0 ? " major" : ""}`} style={{ top: mm * S }}>
+                  {mm % 10 === 0 && mm > 0 && <em>{mm}</em>}
+                </span>
+              ))}
+            </div>
+          </div>
 
-        {indexed.map(({ b, i: bi }) => {
-          const hPx = Math.max(bandMm(b, data, sampleRows, tableMode) * S, BAND_AREA_MIN_PX);
-          const rowPx = Math.max(hPx + 8, TAG_ROW_MIN_PX);
-          const insetY = (rowPx - hPx) / 2;
+          <div className="sheet-main">
+            <div className="hruler-row" style={{ paddingLeft: TAG_W, height: RULER_H }}>
+              <div className="margin-ruler" style={{ width: m.l * S }} />
+              <div className="hruler" style={{ width: cwPx, height: RULER_H }}>
+                {ticks.map((mm) => (
+                  <span key={mm} className={`htick${mm % 10 === 0 ? " major" : ""}`} style={{ left: mm * S }}>
+                    {mm % 10 === 0 && mm < cw && <em>{mm}</em>}
+                  </span>
+                ))}
+              </div>
+              <div className="margin-ruler" style={{ width: m.r * S }} />
+            </div>
+
+            <div className="page-surface" style={{ minHeight: pagePx }}>
+              {pagePx > 0 && (
+                <div className="page-boundary" style={{ height: pagePx }} title="ขอบเขตเนื้อหาหนึ่งหน้า (ไม่รวม margin กระดาษ)" />
+              )}
+
+        {indexed.map(({ b, i: bi }, idx) => {
+          const hPx = Math.max(bandMetrics[idx].hMm * S, BAND_AREA_MIN_PX);
           const isSel = bi === bandIdx;
           const isDrop = dropTarget === bi;
           const accent = BAND_ACCENT[b.type] ?? "#64748b";
@@ -351,47 +451,50 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
             <div
               key={`${b.type}-${bi}`}
               className={`band-row${isSel ? " is-active" : ""}${isDrop ? " is-drop" : ""}${compactUi ? " is-compact" : ""}`}
-              style={{ minHeight: rowPx, height: rowPx }}
+              style={{ height: hPx }}
             >
               <div className="band-tag-slot" style={{ width: TAG_W }}>
-                <button
-                  type="button"
-                  className="band-tag"
-                  style={{ "--band-accent": accent }}
-                  onClick={() => onSelect(bi, null)}
-                  title={`${bandTitle(b)} · ${b.height} mm`}
-                >
-                  <span className="band-tag-dot" aria-hidden="true" />
+                <div className={`band-tag-wrap${isSel ? " is-active" : ""}`}>
                   {isSel && onRemoveBand && (
-                    <span
-                      role="button"
-                      tabIndex={0}
+                    <button
+                      type="button"
                       className="band-del"
-                      title="ลบ band นี้ (Ctrl/⌘+Z เพื่อย้อนกลับ)"
+                      title="ลบ band นี้"
+                      aria-label="ลบ band"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemoveBand(bi);
                       }}
                     >
                       ×
-                    </span>
+                    </button>
                   )}
+                  <button
+                    type="button"
+                    className="band-tag"
+                    style={{ "--band-accent": accent }}
+                    onClick={() => onSelect(bi, null)}
+                    title={`${BAND_STD[b.type] ?? b.type} · ${bandTitle(b)} · ${b.height} mm`}
+                  >
+                  <span className="band-tag-dot" aria-hidden="true" />
                   <span className="band-tag-text">
+                    <span className="band-tag-std">{BAND_STD[b.type] ?? b.type}</span>
                     <span className="band-tag-name">{bandTitle(b)}</span>
                     {!compactUi && (
                       <span className="band-tag-meta mono">
-                        {b.height} mm · {b.elements.length}
+                        {bandMetrics[idx].hMm.toFixed(1)} mm · {b.elements.length}
                       </span>
                     )}
                   </span>
-                </button>
+                  </button>
+                </div>
               </div>
               <div className="band-canvas-row">
-                <div className="margin-strip" style={{ width: m.l * S, height: hPx, marginTop: insetY }} />
+                <div className="margin-strip" style={{ width: m.l * S, height: hPx }} />
                 <div
-                  className="band-area band-frame"
+                  className={`band-area band-frame${gridClass}`}
                   ref={(node) => setBandAreaRef(bi, node)}
-                  style={{ width: cwPx, height: hPx, marginTop: insetY, "--frame-accent": accent, "--cell": `${Math.max(8, 10 * S)}px` }}
+                  style={{ width: cwPx, height: hPx, "--frame-accent": accent, "--cell": `${Math.max(6, 5 * S)}px` }}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     onSelect(bi, null);
@@ -411,6 +514,7 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
                   {b.elements.map((el, ei) => (
                     <ElementBox
                       key={`${bi}-${ei}-${el.type}`}
+                      elIndex={ei}
                       el={el}
                       data={data}
                       textScale={textScale}
@@ -451,26 +555,29 @@ export function BandStage({ template, data, bandIdx, selEl, selIdxs = [], onSele
 
                   <div className="band-resize" onPointerDown={(e) => beginDrag(e, "band", bi, null)} title="ลากปรับความสูง frame" />
                 </div>
-                <div className="margin-strip" style={{ width: m.r * S, height: hPx, marginTop: insetY }} />
+                <div className="margin-strip" style={{ width: m.r * S, height: hPx }} />
               </div>
             </div>
           );
         })}
+            </div>
 
         {onAddBand && (
-          <AddBandSlot existingTypes={template.bands.map((b) => b.type)} onAdd={onAddBand} width={TAG_W} />
+          <AddBandSlot existingTypes={template.bands.map((b) => b.type)} onAdd={onAddBand} width={TAG_W + RULER_W} />
         )}
 
-        <div className="design-foot mono small muted" style={{ marginLeft: TAG_W }}>
+        <div className="design-foot mono small muted" style={{ paddingLeft: RULER_W + TAG_W }}>
           เนื้อหารวม {fmtMm(flowTotal)} / {fmtMm(contentH)} mm · ประมาณ {pagesEst} หน้า
           {flowTotal > contentH + 0.01 && <span className="warn"> · เกินพื้นที่หน้า ขึ้นหน้าใหม่ {pagesEst - 1} ครั้ง</span>}
+        </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ElementBox({ el, data, dataRows, sampleRow, sampleRows, heightRows, textScale, selected, onPointerDown, onHandle, S }) {
+function ElementBox({ elIndex, el, data, dataRows, sampleRow, sampleRows, heightRows, textScale, selected, onPointerDown, onHandle, S }) {
   const kind = KIND_OF_TYPE[el.type] ?? "rect";
   const isLine = el.type === "line" || (el.h ?? 0) === 0;
   const hMm = el.type === "table" ? Math.max(el.h ?? 0, tableMm(el, heightRows ?? dataRows.length)) : el.h ?? 0;
@@ -493,7 +600,7 @@ function ElementBox({ el, data, dataRows, sampleRow, sampleRows, heightRows, tex
   const cls = ["el", `el-${kind}`, selected && "is-selected", isLine && "is-line", tagInside && "tag-inside"].filter(Boolean).join(" ");
   const textSize = Math.max(3, (el.size ?? 10) * PT_MM * S * textScale);
   return (
-    <div className={cls} style={style} onPointerDown={onPointerDown}>
+    <div className={cls} style={style} data-el-i={elIndex} onPointerDown={onPointerDown}>
       {el.type === "text" && showText && (
         <span
           className="el-content"
@@ -509,9 +616,14 @@ function ElementBox({ el, data, dataRows, sampleRow, sampleRows, heightRows, tex
         </span>
       )}
       {el.type === "text" && !showText && <span className="el-kind-fallback">{KIND_LABELS.text}</span>}
-      {el.type === "table" && <TableGhost el={el} scale={S * textScale} data={data} dataRows={dataRows} sampleRows={sampleRows} />}
+      {el.type === "table" && <TableGhost el={el} scale={S * textScale} data={data} sampleRows={sampleRows} />}
       {el.type === "checkbox" && <CheckGlyph el={el} data={data} row={sampleRow} />}
-      {el.type === "image" && hPx >= 14 && <span className="el-img-hint">{el.src?.startsWith("data:") ? "" : "รูป"}</span>}
+      {el.type === "image" && isDataImageSrc(el.src) && (
+        <img className="el-img" src={el.src} alt="" draggable={false} />
+      )}
+      {el.type === "image" && !isDataImageSrc(el.src) && hPx >= 14 && (
+        <span className="el-img-hint">{el.src?.includes("{{") ? "[ฟิลด์รูป]" : "อัปโหลดรูป → คุณสมบัติ"}</span>
+      )}
       {!isLine && (selected || S >= 0.6) && (
         <span className="el-tag">{KIND_LABELS[el.type] ?? el.type}</span>
       )}
@@ -522,10 +634,14 @@ function ElementBox({ el, data, dataRows, sampleRow, sampleRows, heightRows, tex
 
 /** ข้อความที่แทนค่าตัวอย่างแล้ว — ตัวแปรที่หาไม่พบแสดงเป็นป้ายเตือนสีแดง (engine จะพิมพ์เป็นว่าง) */
 function BoundText({ text, data, row }) {
-  return bindSegments(text, data, { row }).map((seg, i) =>
+  return designBindSegments(text, data, { row }).map((seg, i) =>
     "raw" in seg ? (
       <mark key={i} className="tok-missing" title="ไม่พบฟิลด์นี้ในข้อมูล — PDF จะเป็นช่องว่าง">
         {seg.raw}
+      </mark>
+    ) : seg.ph ? (
+      <mark key={i} className="tok-field" title={`ฟิลด์ข้อมูล — ค่าจริงดูที่พรีวิว PDF`}>
+        {seg.text}
       </mark>
     ) : (
       <React.Fragment key={i}>{seg.text}</React.Fragment>
@@ -546,17 +662,15 @@ function cellStyleFor(el, col, ci, ri) {
   return st;
 }
 
-/** ตารางจริงตามข้อมูล: หัว + ทุกแถวข้อมูล (แสดงสูงสุด 60 แถว) พร้อมค่าตัวอย่างและสีตามกฎ */
-function TableGhost({ el, scale, data, dataRows, sampleRows }) {
+/** ตารางบนกระดาษออกแบบ: หัวคอลัมน์ + แถว placeholder [ฟิลด์] (ไม่แสดงข้อมูลตัวอย่าง) */
+function TableGhost({ el, scale, data, sampleRows }) {
   const cols = el.columns ?? [];
   const total = cols.reduce((a, c) => a + (c.width || 0), 0) || 1;
   const headSize = Math.max(3, (el.size ?? 9) * PT_MM * scale);
-  // แสดงเฉพาะแถวตัวอย่าง เพื่อให้หน้าออกแบบอ่านง่ายแม้ข้อมูลเป็นพันแถว — ความสูงกรอบยังคงตามจำนวนแถวจริง
-  const rows = dataRows.slice(0, sampleRows);
-  const shown = rows.length ? rows : [null];
+  const placeholderCount = Math.min(3, Math.max(1, sampleRows ?? 1));
   const pct = (c) => `${((c.width || 0) / total) * 100}%`;
   return (
-    <div className="table-ghost" style={{ fontFamily: '"Sarabun", sans-serif' }}>
+    <div className="table-ghost table-ghost--design" style={{ fontFamily: '"Sarabun", sans-serif' }}>
       <div className="tg-row">
         {cols.map((c, i) => (
           <div
@@ -575,11 +689,11 @@ function TableGhost({ el, scale, data, dataRows, sampleRows }) {
           </div>
         ))}
       </div>
-      {shown.map((row, ri) => (
-        <div key={ri} className="tg-row">
+      {Array.from({ length: placeholderCount }, (_, ri) => (
+        <div key={ri} className="tg-row tg-row--placeholder">
           {cols.map((c, i) => {
             const st = cellStyleFor(el, c, i, ri);
-            const val = row ? bindPreview(c.field, data, { row }) : c.field;
+            const val = designDisplay(c.field, data);
             return (
               <div
                 key={i}
@@ -600,14 +714,6 @@ function TableGhost({ el, scale, data, dataRows, sampleRows }) {
           })}
         </div>
       ))}
-      {dataRows.length > rows.length && (
-        <div className="tg-more" style={{ fontSize: Math.max(9, 11 * Math.min(scale, 1)) }}>
-          ⋯ อีก {dataRows.length - rows.length} แถว · ความสูงจริงประมาณ {Math.round(tableMm(el, dataRows.length))} mm (ดูตำแหน่งจริงที่พรีวิว)
-        </div>
-      )}
-      <div className="tg-foot" style={{ fontSize: Math.max(9, 11 * Math.min(scale, 1)) }}>
-        {dataRows.length} แถวข้อมูล
-      </div>
     </div>
   );
 }
@@ -645,9 +751,13 @@ function AddBandSlot({ existingTypes, onAdd, width }) {
 
 /** ช่องติ๊กบนกระดาษออกแบบ: ค่าตัวอย่างจากแถวแรกของข้อมูล (ตรงกับกติกาของ engine) */
 function CheckGlyph({ el, data, row }) {
-  const value = bindPreview(el.checked ?? "", data, { row });
-  const t = value.trim().toLowerCase();
-  const on = !(t === "" || ["false", "0", "no", "n", "null", "none", "ไม่", "ไม่ใช่"].includes(t)) && !value.includes("{{");
+  const bound = scanExprs(el.checked ?? "").length > 0;
+  let on = false;
+  if (!bound) {
+    const value = bindPreview(el.checked ?? "", data, { row });
+    const t = value.trim().toLowerCase();
+    on = !(t === "" || ["false", "0", "no", "n", "null", "none", "ไม่", "ไม่ใช่"].includes(t)) && !value.includes("{{");
+  }
   return (
     <svg className="check-glyph" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
       <rect x="2" y="2" width="96" height="96" fill="none" stroke={el.stroke ?? "#1F2937"} strokeWidth="6" vectorEffect="non-scaling-stroke" />

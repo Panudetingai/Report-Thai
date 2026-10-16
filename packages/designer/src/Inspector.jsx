@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Icon } from "./icons.jsx";
-import { KIND_LABELS, BAND_LABELS, BAND_ORDER, fixColumnSum } from "./state.js";
+import { fieldBracketLabel } from "./bind.js";
+import { fetchUrlAsDataUrl, isDataImageSrc, isHttpUrl, needsEmbedForPreview, readFileAsDataUrl } from "./image-embed.js";
+import { isTableList, KIND_LABELS, BAND_LABELS, BAND_ORDER, fixColumnSum } from "./state.js";
 import { PAGE_SIZES, margins, pageSize } from "./layout.js";
 
 export const FONT_CHOICES = ["Sarabun-Light", "Sarabun", "Sarabun-Bold", "NotoSansThai"];
@@ -152,11 +154,11 @@ export function FieldSelect({ fields, onPick, placeholder = "เลือกฟ�
   if (fields?.row?.items?.length) {
     groups.push({
       label: `ในแถว “${fields.row.source}” (item.)`,
-      options: fields.row.items.map((f) => ({ value: `item.${f.path}`, label: optionLabel(f) })),
+      options: fields.row.items.map((f) => ({ value: `item.${f.path}`, label: optionLabel(f, `item.${f.path}`) })),
     });
   }
   if (fields?.scalars?.length) {
-    groups.push({ label: "ทั้งเอกสาร", options: fields.scalars.map((f) => ({ value: f.path, label: optionLabel(f) })) });
+    groups.push({ label: "ทั้งเอกสาร", options: fields.scalars.map((f) => ({ value: f.path, label: optionLabel(f, f.path) })) });
   }
   if (!groups.length) return <p className="hint small muted">ยังไม่มีข้อมูล — ไปที่แท็บ “ข้อมูล”</p>;
   return (
@@ -180,10 +182,9 @@ export function FieldSelect({ fields, onPick, placeholder = "เลือกฟ�
   );
 }
 
-function optionLabel(f) {
-  const s = (f.sample ?? "").toString();
-  const shown = s.length > 22 ? `${s.slice(0, 22)}…` : s;
-  return shown ? `${f.path}  ·  ${shown}` : f.path;
+function optionLabel(f, expr) {
+  const ex = expr ?? f.path;
+  return `[${fieldBracketLabel(ex)}] — ${ex}`;
 }
 
 /* ---------- Element ---------- */
@@ -219,7 +220,7 @@ export function ZOrderButtons({ onReorder, compact = false }) {
   );
 }
 
-export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, bandOptions, bandIndex, onMoveBand, onReorder }) {
+export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, bandOptions, bandIndex, onMoveBand, onReorder, onNotice }) {
   const set = (patch) => onChange(patch, false); // กดครั้งเดียว
   const live = (patch) => onChange(patch, true); // พิมพ์/ลาก/ปรับค่าต่อเนื่อง
   const appendExpr = (expr) => set({ text: `${el.text ?? ""}{{ ${expr} }}` });
@@ -228,7 +229,6 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
       <div className="insp-head row-between">
         <div>
           <h3>{KIND_LABELS[el.type] ?? el.type}</h3>
-          <p className="muted small">แก้ค่าได้ทันที · ผลจริงดูที่แท็บพรีวิว</p>
         </div>
         <div className="insp-actions">
           {onDuplicate && (
@@ -245,7 +245,6 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
       {onReorder && (
         <Section title="ลำดับซ้อน">
           <ZOrderButtons onReorder={onReorder} />
-          <p className="hint small muted">รายการที่อยู่บนจะทับรายการที่อยู่ล่าง · ทั้งพรีวิวและ PDF ใช้ลำดับเดียวกัน</p>
         </Section>
       )}
 
@@ -263,7 +262,6 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
           <Row label="อยู่ใน band">
             <Select value={bandIndex} options={bandOptions.map((o) => [o.value, o.label])} onChange={(v) => onMoveBand(Number(v))} />
           </Row>
-          <p className="hint small muted">band รายการที่มีตาราง ใช้ได้เฉพาะตาราง — element อื่นจะถูกย้ายไป band สรุปใต้ตารางให้อัตโนมัติ</p>
         </Section>
       )}
 
@@ -349,7 +347,7 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
 
       {el.type === "image" && (
         <Section title="รูปภาพ">
-          <ImageSource src={el.src} onChange={(src, l) => onChange({ src }, l)} />
+          <ImageSource src={el.src} onChange={(src, l) => onChange({ src }, l)} onNotice={onNotice} />
         </Section>
       )}
 
@@ -405,34 +403,95 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
   );
 }
 
-function ImageSource({ src, onChange }) {
-  const isData = src?.startsWith("data:");
+function ImageSource({ src, onChange, onNotice }) {
+  const isData = isDataImageSrc(src);
+  const [urlDraft, setUrlDraft] = useState(isData || !src ? "" : String(src));
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (isData || !src) setUrlDraft("");
+    else if (isHttpUrl(src) || needsEmbedForPreview(src)) setUrlDraft(String(src));
+  }, [src, isData]);
+
+  async function embedFromFile(file) {
+    setErr("");
+    try {
+      const data = await readFileAsDataUrl(file);
+      onChange(data, false);
+      onNotice?.("ฝังรูปในเทมเพลตแล้ว — พรีวิว PDF ใช้ได้");
+    } catch (e) {
+      const msg = e?.message ?? "อัปโหลดไม่สำเร็จ";
+      setErr(msg);
+      onNotice?.(msg);
+    }
+  }
+
+  async function embedFromUrl() {
+    setErr("");
+    setLoading(true);
+    try {
+      const data = await fetchUrlAsDataUrl(urlDraft);
+      onChange(data, false);
+      setUrlDraft("");
+      onNotice?.("ฝังรูปจาก URL แล้ว");
+    } catch (e) {
+      const msg = e?.message ?? "โหลด URL ไม่สำเร็จ";
+      setErr(msg);
+      onNotice?.(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const warnEmbed = !isData && src && needsEmbedForPreview(src);
+
   return (
     <>
+      <p className="hint small muted">
+        พรีวิวใน browser ใช้ได้เฉพาะรูปที่<strong>ฝังในเทมเพลต</strong> (อัปโหลด PNG/JPEG) — ลิงก Figma หรือ path ไฟล์โดยตรงใช้ไม่ได้
+      </p>
       {isData && <img className="img-thumb" src={src} alt="" />}
-      <Row label="แหล่งภาพ" stack>
-        {isData ? (
-          <p className="small muted">ฝังอยู่ในเทมเพลตแล้ว — อัปโหลดใหม่เพื่อเปลี่ยน หรือวาง path/URL ด้านล่าง</p>
-        ) : null}
-        <Text value={isData ? "" : src} placeholder={isData ? "หรือวาง URL/path ของรูป" : "URL หรือ path"} onChange={(v) => onChange(v || null, true)} />
+      {warnEmbed && (
+        <p className="error-text small">
+          แหล่งปัจจุบันยังไม่ฝังในเทมเพลต — พรีวิว PDF จะ error จนกว่าจะอัปโหลดหรือโหลดจาก URL สำเร็จ
+        </p>
+      )}
+      {err && <p className="error-text small">{err}</p>}
+      <Row label="URL รูป" stack>
+        <Text
+          value={urlDraft}
+          placeholder="https://... (Figma มักต้องดาวน์โหลดแล้วอัปโหลดไฟล์)"
+          onChange={(v) => {
+            setUrlDraft(v);
+            setErr("");
+          }}
+        />
+        <button type="button" className="btn" disabled={loading || !isHttpUrl(urlDraft)} onClick={embedFromUrl}>
+          {loading ? "กำลังโหลด…" : "โหลดและฝังจาก URL"}
+        </button>
       </Row>
       <label className="btn btn-block">
         <Icon name="upload" /> อัปโหลดภาพ (PNG/JPEG)
-        <span className="small muted">ไม่เกิน 2 MB ต่อภาพ</span>
+        <span className="small muted">ไม่เกิน 2 MB ต่อภาพ — แนะนำวิธีนี้สำหรับรูปจาก Figma</span>
         <input
           type="file"
-          accept="image/png,image/jpeg"
+          accept="image/png,image/jpeg,image/jpg"
           hidden
           onChange={(e) => {
             const f = e.target.files[0];
             e.target.value = "";
-            if (!f) return;
-            const reader = new FileReader();
-            reader.onload = () => onChange(reader.result, false);
-            reader.readAsDataURL(f);
+            if (f) embedFromFile(f);
           }}
         />
       </label>
+      <Row label="ผูกฟิลด์" stack>
+        <Text
+          value={isData ? "" : src ?? ""}
+          placeholder='หรือ {{ logo_url }} ถ้าค่าใน JSON เป็น data:image/...;base64'
+          onChange={(v) => onChange(v || null, true)}
+        />
+      </Row>
     </>
   );
 }
@@ -549,16 +608,16 @@ function CellRules({ rules, columns, onChange }) {
 
 /* ---------- Band ---------- */
 
-export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, existingTypes }) {
+export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, existingTypes, canDelete = true }) {
   const missing = BAND_ORDER.filter((t) => !existingTypes.includes(t));
   return (
     <>
       <div className="insp-head row-between">
         <div>
           <h3>{BAND_LABELS[band.type] ?? band.type}</h3>
-          <p className="muted small">ลาก element เข้ามาในกรอบบนกระดาษได้ · ลากขอบล่างของกรอบเพื่อปรับความสูง</p>
+          {isTableList(band) && <p className="hint small muted">มีได้เฉพาะตาราง — ข้อความอื่นใส่ band สรุป</p>}
         </div>
-        <button type="button" className="icon-btn danger" onClick={onDelete} title="ลบ band นี้" aria-label="ลบ band">
+        <button type="button" className="icon-btn danger" onClick={onDelete} disabled={!canDelete} title={canDelete ? "ลบ band นี้" : "ต้องเหลือ band อย่างน้อย 1"} aria-label="ลบ band">
           <Icon name="trash" />
         </button>
       </div>
@@ -578,10 +637,8 @@ export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, exist
           </Row>
         ) : null}
       </Section>
-      <Section title="เพิ่ม band" defaultOpen={false}>
-        {missing.length === 0 ? (
-          <p className="muted small">มี band ครบทุกชนิดแล้ว</p>
-        ) : (
+      {missing.length > 0 && (
+        <Section title="เพิ่ม band" defaultOpen={false}>
           <div className="band-add">
             {missing.map((t) => (
               <button key={t} type="button" className="btn" onClick={() => onAddBand(t)}>
@@ -589,9 +646,8 @@ export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, exist
               </button>
             ))}
           </div>
-        )}
-      </Section>
-      <p className="hint small muted">band #{bandIndex + 1}</p>
+        </Section>
+      )}
     </>
   );
 }

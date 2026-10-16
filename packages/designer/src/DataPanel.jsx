@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { fieldBracketLabel } from "./bind.js";
 import { analyzeTemplate, buildCatalog, exprFor, isSafeAuto, remapTemplate, suggestFields } from "./fields.js";
 import { parseCsv } from "./csv.js";
 import { bandTitle } from "./state.js";
@@ -92,7 +93,8 @@ export function DataPanel({ template, data, onSetData, onReplaceTemplate, onNoti
       </section>
 
       <section className="dp-section">
-        <h3>ฟิลด์ในข้อมูล</h3>
+        <h3>ฟิลด์ข้อมูล</h3>
+        <p className="hint small muted">คลิกเพื่อคัดลอก <span className="mono">{"{{ … }}"}</span> — บนกระดาษออกแบบจะแสดงเป็น [ชื่อฟิลด์] ไม่แสดงค่าตัวอย่าง</p>
         <FieldCatalog catalog={catalog} onNotice={onNotice} />
       </section>
     </div>
@@ -229,7 +231,8 @@ function FieldCatalog({ catalog, onNotice }) {
   );
 }
 
-function FieldRow({ path, type, sample, expr, onNotice }) {
+function FieldRow({ path, type, expr, onNotice }) {
+  const bracket = `[${fieldBracketLabel(expr)}]`;
   async function copy() {
     const text = `{{ ${expr} }}`;
     try {
@@ -241,10 +244,10 @@ function FieldRow({ path, type, sample, expr, onNotice }) {
   }
   return (
     <li>
-      <button type="button" className="field-row" onClick={copy} title={`คัดลอก {{ ${expr} }}`}>
-        <span className="mono field-path">{path}</span>
+      <button type="button" className="field-row field-row-pick" onClick={copy} title={`คัดลอก {{ ${expr} }}`}>
+        <span className="field-bracket">{bracket}</span>
         <span className={`type-badge type-${TYPE_CLASS[type] ?? "text"}`}>{type}</span>
-        <span className="field-sample">{sample}</span>
+        <span className="mono field-path muted small">{path}</span>
       </button>
     </li>
   );

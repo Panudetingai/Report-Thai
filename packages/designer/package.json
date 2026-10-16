@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-pdfjs.mjs",
+    "predev": "node scripts/copy-pdfjs.mjs && node scripts/copy-wasm.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/copy-pdfjs.mjs",
+    "prebuild": "node scripts/copy-pdfjs.mjs && node scripts/copy-wasm.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/*.test.mjs\""

@@ -25,6 +25,18 @@ export const BAND_LABELS = {
   pageFooter: "ท้ายกระดาษ",
 };
 
+/** ชื่อ band แบบที่ใช้กันทั่วไปใน report designer (แสดงคู่กับ BAND_LABELS) */
+export const BAND_STD = {
+  pageHeader: "Page Header",
+  title: "Report Header",
+  columnHeader: "Column Header",
+  detail: "Detail",
+  groupHeader: "Group Header",
+  groupFooter: "Group Footer",
+  summary: "Report Footer",
+  pageFooter: "Page Footer",
+};
+
 export const KIND_LABELS = {
   text: "ข้อความ",
   line: "เส้น",
@@ -216,7 +228,9 @@ export function planPlacement(template, bi, elType) {
   if (!target) return { error: "ไม่พบ band" };
   if (elType === "table" && isTableList(target)) return { error: "band รายการนี้มีตารางอยู่แล้ว — ตารางได้ 1 ตารางต่อ band" };
   if (elType === "table" && target.type === "detail") {
-    const t = evictStrays(template, bi);
+    let t = evictStrays(template, bi);
+    // สร้าง band สรุปใต้ Detail ทันที (วางยอดรวม / ท้ายรายงาน — แยกจาก band ตาราง)
+    t = ensureFollowBand(t, bi).template;
     return { template: t, band: bi, elIndex: t.bands[bi].elements.length };
   }
   if (needsFollow(template, bi, elType)) {
@@ -239,7 +253,10 @@ export function normalizeTemplate(template) {
   const sorted = { ...template, bands: [...template.bands].sort((a, b) => bandRank(a.type) - bandRank(b.type)) };
   let t = sorted;
   for (let bi = 0; bi < t.bands.length; bi++) {
-    if (isTableList(t.bands[bi])) t = evictStrays(t, bi);
+    if (isTableList(t.bands[bi])) {
+      t = evictStrays(t, bi);
+      t = ensureFollowBand(t, bi).template;
+    }
   }
   return t;
 }

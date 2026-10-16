@@ -6,6 +6,7 @@
  * - remapTemplate: เปลี่ยน {{ เดิม }} → {{ ใหม่ }} ทั้ง template
  */
 import { EXPR_SOURCE, bindSegments, detailSourceOf, resolveExpr, rowsOf, scanExprs, tableSourceOf, valueText } from "./bind.js";
+import { isDataImageSrc, needsEmbedForPreview } from "./image-embed.js";
 
 const SAMPLE_ROWS = 200;
 const AUTO_MIN_SCORE = 60;
@@ -108,7 +109,22 @@ export function analyzeTemplate(template, data) {
     if (reason) map.set(key, { expr: u.expr, source: u.source, reason, count: 1, places: [u] });
     else map.set(key, null);
   }
-  return { uses, problems: [...map.values()].filter(Boolean) };
+  const problems = [...map.values()].filter(Boolean);
+  template.bands.forEach((band, bi) => {
+    band.elements.forEach((el, ei) => {
+      if (el.type !== "image" || !el.src) return;
+      if (scanExprs(el.src).length) return;
+      if (isDataImageSrc(el.src) || !needsEmbedForPreview(el.src)) return;
+      problems.push({
+        expr: el.src.length > 48 ? `${el.src.slice(0, 45)}…` : el.src,
+        source: null,
+        reason: "embed",
+        count: 1,
+        places: [{ band: bi, bandType: band.type, el: ei, elType: "image", prop: "src", expr: el.src, source: null }],
+      });
+    });
+  });
+  return { uses, problems };
 }
 
 /** เหตุผลที่ผูกไม่ได้ของ use หนึ่งจุด หรือ null ถ้าผูกได้ */

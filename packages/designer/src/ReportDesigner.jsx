@@ -3,7 +3,7 @@ import { Icon } from "./icons.jsx";
 import { Button } from "./components/ui/button.jsx";
 import { DND_KIND } from "./canvas/bandHit.js";
 import { usePreviewEngine } from "./hooks/usePreviewEngine.js";
-import { BandStage, RULER_H } from "./BandStage.jsx";
+import { BandStage, RULER_H, RULER_W, TAG_W } from "./BandStage.jsx";
 import { PreviewTab } from "./PreviewTab.jsx";
 import { BandProps, ElementProps, PageProps, ZOrderButtons } from "./Inspector.jsx";
 import { DataPanel } from "./DataPanel.jsx";
@@ -13,7 +13,7 @@ import { ALIGN_ACTIONS, alignChanges, groupMembers, newGroupId } from "./layout-
 import { SAMPLES } from "./samples.js";
 import { StructurePicker } from "./StructurePicker.jsx";
 import { STANDARD_STRUCTURES, loadUserStructures, makeUserStructure, parseStructureFile, saveUserStructures, structureFileText } from "./structures.js";
-import { ADD_KINDS, BAND_LABELS, BAND_ORDER, KIND_LABELS, bandRank, bandTitle, countStrays, historyReducer, initialHistory, newElement, planMove, planPlacement, zOrderPlan } from "./state.js";
+import { ADD_KINDS, BAND_LABELS, BAND_ORDER, BAND_STD, KIND_LABELS, bandRank, bandTitle, countStrays, historyReducer, initialHistory, newElement, planMove, planPlacement, zOrderPlan } from "./state.js";
 import { BASE_PX_PER_MM, contentWidth, margins, pageSize } from "./layout.js";
 
 const MIN_ZOOM = 0.55;
@@ -21,25 +21,6 @@ const ZOOM_STEPS = [0.55, 0.75, 1, 1.25, 1.5, 2, 3];
 const PREVIEW_ZOOMS = [0.5, 0.75, 1, 1.25, 1.5];
 const KIND_OF_TYPE = { text: "text", line: "line", rectangle: "rect", ellipse: "ellipse", image: "image", table: "table", checkbox: "checkbox" };
 const initial = SAMPLES[0];
-const TAG_W = 132;
-const TIPS_KEY = "thaireport.tips.v1";
-
-/** อ่าน/เขียนค่าจาก localStorage แบบปลอดภัย (ใช้เฉพาะการจำค่าการแสดงผลของผู้ใช้เครื่องนี้) */
-function readFlag(key) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function writeFlag(key, value) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* ไม่มีที่เก็บค่า — ยังใช้งานได้ */
-  }
-}
-
 const SHORTCUTS = [
   ["⌘/Ctrl + Z", "ย้อนกลับ"],
   ["⌘/Ctrl + Shift + Z", "ทำซ้ำ"],
@@ -63,12 +44,11 @@ const Z_NOTICE = {
   back: "ย้ายไปล่างสุดแล้ว",
 };
 
-function DisplayRow({ label, hint, children }) {
+function DisplayRow({ label, children }) {
   return (
     <div className="display-row">
       <div className="display-label">
         <strong>{label}</strong>
-        <span className="small muted">{hint}</span>
       </div>
       {children}
     </div>
@@ -83,6 +63,84 @@ function Segment({ value, onChange, options }) {
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+const PANEL_TABS = [
+  ["props", "คุณสมบัติ", "sliders"],
+  ["page", "หน้ากระดาษ", "page"],
+  ["data", "ข้อมูล", "table"],
+  ["explorer", "Report Explorer", "layers"],
+];
+
+/** ต้นไม้ band / element — แผงขวา (มาตรฐาน report designer) */
+function ReportExplorerTree({ sortedIdx, bandIdx, selEl, selIdxs, onSelectBand, onRemoveBand, canRemoveBand, addable, onAddBand }) {
+  return (
+    <div className="explorer-panel">
+      <h3>Report Explorer</h3>
+      <ul className="bands">
+        {sortedIdx.map(({ b, i: bi }) => (
+          <li key={bi}>
+            <div className={`explorer-band-row${bi === bandIdx ? " is-active" : ""}`}>
+              <button type="button" className="band-row-btn" onClick={() => onSelectBand(bi, null)}>
+                <span className="band-row-text">
+                  <span className="band-row-name">{bandTitle(b)}</span>
+                  <span className="band-row-std">{BAND_STD[b.type] ?? b.type}</span>
+                </span>
+                <span className="mono small muted">{b.height} mm</span>
+              </button>
+              {canRemoveBand && (
+                <button
+                  type="button"
+                  className="icon-btn danger explorer-band-del"
+                  title="ลบ band"
+                  aria-label={`ลบ ${bandTitle(b)}`}
+                  onClick={() => onRemoveBand(bi)}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              )}
+            </div>
+            {bi === bandIdx && b.elements.length > 0 && (
+              <ul className="layers" aria-label="ลำดับซ้อน จากบนลงล่าง">
+                {b.elements
+                  .map((el, ei) => ({ el, ei }))
+                  .reverse()
+                  .map(({ el, ei }) => (
+                    <li key={ei}>
+                      <button
+                        type="button"
+                        className={`layer${bi === bandIdx && selIdxs.includes(ei) ? " is-active" : ""}`}
+                        onClick={(e) => onSelectBand(bi, ei, e.shiftKey || e.metaKey || e.ctrlKey)}
+                        title="คลิก เลือก · Shift/⌘-คลิก เลือกหลายรายการ"
+                      >
+                        <Icon name={KIND_OF_TYPE[el.type] ?? "rect"} size={14} />
+                        <span className="layer-name">{KIND_LABELS[el.type] ?? el.type}</span>
+                        {el.group && <span className="group-dot" title={`อยู่ในกลุ่ม ${el.group.slice(-4)}`} />}
+                        <span className="mono small muted">
+                          {el.x}, {el.y}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+      {addable?.length > 0 && (
+        <div className="explorer-add">
+          <span className="small muted">เพิ่ม band</span>
+          <div className="band-add-row">
+            {addable.map((t) => (
+              <button key={t} type="button" className="chip" onClick={() => onAddBand(t)} title={`เพิ่ม ${BAND_LABELS[t]}`}>
+                + {BAND_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -147,6 +205,94 @@ function selIndexes(ei, extra, n) {
   return [...new Set([ei, ...extra])].filter((i) => i < n).sort((a, b) => a - b);
 }
 
+const PROBLEM_MSG = {
+  missing: "ตัวแปรไม่พบในข้อมูล",
+  unsupported: "นิพจน์หรือตัวกรองยังไม่รองรับใน engine",
+  norows: "ยังไม่มีแถวข้อมูลในชุดนี้ — ตรวจไม่ครบ",
+  embed: "รูปยังไม่ฝังในเทมเพลต — อัปโหลด PNG/JPEG (ลิงก Figma ใช้โดยตรงไม่ได้)",
+};
+const PROBLEM_SEV = { missing: "error", unsupported: "warning", norows: "info", embed: "warning" };
+
+function problemRows(problems) {
+  return problems.map((p, i) => ({
+    id: `${p.expr}-${p.source ?? ""}-${i}`,
+    code: `TR${String(100 + i).slice(-3)}`,
+    message: PROBLEM_MSG[p.reason] ?? p.reason,
+    severity: PROBLEM_SEV[p.reason] ?? "warning",
+    expr: p.expr,
+    count: p.count,
+    place: p.places[0],
+  }));
+}
+
+function DesignAnalyzer({ problems, filter, onFilter, onJump, placeLabel, onClose }) {
+  const rows = useMemo(() => problemRows(problems), [problems]);
+  const counts = useMemo(() => {
+    const c = { all: rows.length, error: 0, warning: 0, info: 0 };
+    for (const r of rows) c[r.severity] += 1;
+    return c;
+  }, [rows]);
+  const shown = filter === "all" ? rows : rows.filter((r) => r.severity === filter);
+
+  return (
+    <div className="analyzer">
+      <div className="analyzer-head">
+        <strong>ตัววิเคราะห์การออกแบบ</strong>
+        <div className="analyzer-tabs" role="tablist">
+          {[
+            ["all", "ทั้งหมด"],
+            ["error", "ข้อผิดพลาด"],
+            ["warning", "คำเตือน"],
+            ["info", "ข้อมูล"],
+          ].map(([id, label]) => (
+            <button key={id} type="button" role="tab" className={filter === id ? "is-on" : ""} onClick={() => onFilter(id)}>
+              {label}
+              <span className="analyzer-count">{counts[id] ?? counts.all}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="icon-btn analyzer-close" onClick={onClose} title="ย่อแผง" aria-label="ย่อแผงวิเคราะห์">
+          ×
+        </button>
+      </div>
+      <div className="analyzer-body">
+        {shown.length === 0 ? (
+          <p className="small muted analyzer-empty">ไม่มีรายการในหมวดนี้</p>
+        ) : (
+          <table className="analyzer-table">
+            <thead>
+              <tr>
+                <th>รหัส</th>
+                <th>ข้อความ</th>
+                <th>ตัวแปร</th>
+                <th>แหล่ง</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className={`sev-${r.severity}`}>
+                  <td className="mono">{r.code}</td>
+                  <td>{r.message}</td>
+                  <td className="mono small">{r.expr}{r.count > 1 ? ` ×${r.count}` : ""}</td>
+                  <td>
+                    {r.place ? (
+                      <button type="button" className="link-btn" onClick={() => onJump(r.place.band, r.place.el)}>
+                        {placeLabel(r.place)}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ShortcutHelp({ onClose }) {
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -184,6 +330,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   const [selEl, setSelEl] = useState(null); // รายการหลัก (รายการที่คลิกล่าสุด)
   const [extraSel, setExtraSel] = useState([]); // รายการที่เลือกเพิ่มในband เดียวกัน (Shift/⌘-คลิก)
   const clipRef = useRef(null); // element ที่คัดลอกไว้ (Ctrl/⌘+C)
+  const [hasClip, setHasClip] = useState(false);
   const [view, setView] = useState("design"); // "design" | "preview"
   const [rightTab, setRightTab] = useState("props"); // "props" | "page" | "data"
   const [textScale, setTextScale] = useState(1);
@@ -191,13 +338,16 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   const [previewZoom, setPreviewZoom] = useState(1);
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 });
   const [previewW, setPreviewW] = useState(0);
-  const { ready, initError, rendering, renderError, pdf, stats, dirty } = usePreviewEngine(doc, view);
+  const { ready, initError, rendering, renderError, pdf, stats, dirty, retry: retryPreview } =
+    usePreviewEngine(doc, view);
   const [notice, setNotice] = useState("");
   const [showHelp, setShowHelp] = useState(false);
-  const [sampleRows, setSampleRows] = useState(3); // จำนวนแถวตัวอย่างที่วาดในตารางบนหน้าออกแบบ
+  const [sampleRows, setSampleRows] = useState(1); // แถว placeholder ในตารางบนกระดาษ (ไม่ใช่ข้อมูลจริง)
   const [tableMode, setTableMode] = useState("compact"); // "compact" = ย่อความสูงตาราง · "actual" = ตามจำนวนแถวจริง
   const [showDisplay, setShowDisplay] = useState(false);
-  const [showTips, setShowTips] = useState(() => readFlag(TIPS_KEY) !== "hidden");
+  const [showGrid, setShowGrid] = useState(true);
+  const [showAnalyzer, setShowAnalyzer] = useState(false);
+  const [analyzerFilter, setAnalyzerFilter] = useState("all");
 
   const latestRef = useRef(doc);
   latestRef.current = doc;
@@ -216,7 +366,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   // ---- ขนาดการแสดงผล --------------------------------------------------------
   const fitS = useMemo(() => {
     if (!stageSize.w) return BASE_PX_PER_MM;
-    return Math.max(MIN_ZOOM, (stageSize.w - TAG_W - 96) / page.w);
+    return Math.max(MIN_ZOOM, (stageSize.w - RULER_W - TAG_W - 96) / page.w);
   }, [stageSize, page]);
   const S = (zoomMode === "fit" ? fitS : BASE_PX_PER_MM * zoomMode);
   const zoomNow = zoomMode === "fit" ? fitS / BASE_PX_PER_MM : zoomMode;
@@ -236,15 +386,26 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return undefined;
-    const ro = new ResizeObserver(([e]) => setStageSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w > 0) setStageSize({ w, h });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     const el = previewRef.current;
     if (!el) return undefined;
-    const ro = new ResizeObserver(([e]) => setPreviewW(e.contentRect.width));
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setPreviewW(w);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, [view]);
@@ -252,7 +413,11 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   // ฟิลด์ข้อมูลและการผูกกับเทมเพลต — คำนวณใหม่เมื่อ template หรือข้อมูลเปลี่ยน
   const catalog = useMemo(() => buildCatalog(data), [data]);
   const analysis = useMemo(() => analyzeTemplate(template, data), [template, data]);
-  const problemCount = analysis.problems.filter((p) => p.reason === "missing" || p.reason === "unsupported").length;
+  const problemCount = analysis.problems.filter((p) => p.reason === "missing" || p.reason === "unsupported" || p.reason === "embed").length;
+
+  useEffect(() => {
+    if (analysis.problems.length > 0) setShowAnalyzer(true);
+  }, [analysis.problems.length]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -305,7 +470,20 @@ export function ReportDesigner({ initialTemplate, initialData }) {
     if (selIdxs.length < 2 && !ungroup) return;
     const gid = ungroup ? undefined : newGroupId();
     dispatch({ type: "patchEls", band: bandIdx, changes: selIdxs.map((ei) => ({ ei, patch: { group: gid } })), record: true });
-    setNotice(ungroup ? "แยกกลุ่มแล้ว" : `จัดกลุ่ม ${selIdxs.length} รายการแล้ว (คลิกรายการใดก็เลือกทั้งกลุ่ม)`);
+    setNotice(ungroup ? "แยกกลุ่มแล้ว" : `จัดกลุ่ม ${selIdxs.length} รายการแล้ว`);
+  }
+
+  /** คัดลอก element สำหรับวาง/ทำซ้ำ — กลุ่มเดิมได้ id ใหม่เพื่อไม่ปนกับกลุ่มบนกระดาษ */
+  function cloneForPaste(elements) {
+    const gidMap = new Map();
+    return elements.map((e) => {
+      const next = { ...e };
+      if (next.group) {
+        if (!gidMap.has(next.group)) gidMap.set(next.group, newGroupId());
+        next.group = gidMap.get(next.group);
+      }
+      return next;
+    });
   }
 
   /** วางสำเนา element ที่คัดลอกไว้ — ไปที่ band ที่ถูกกติกา (ตาราง/ใต้ตาราง) อัตโนมัติ */
@@ -313,12 +491,19 @@ export function ReportDesigner({ initialTemplate, initialData }) {
     if (!elements?.length) return;
     const plan = planPlacement(template, bandIdx, elements[0].type);
     if (plan.error) return setNotice(plan.error);
+    const clones = cloneForPaste(elements);
     const start = template.bands[plan.band].elements.length;
-    dispatch({ type: "addEls", band: plan.band, elements, offset: 3 });
+    dispatch({ type: "addEls", band: plan.band, elements: clones, offset: 3, keepGroup: true });
     setBandIdx(plan.band);
-    setSelEl(start + elements.length - 1);
-    setExtraSel(Array.from({ length: elements.length - 1 }, (_, k) => start + k));
+    setSelEl(start + clones.length - 1);
+    setExtraSel(Array.from({ length: clones.length - 1 }, (_, k) => start + k));
     setRightTab("props");
+    setNotice(clones.length > 1 ? `วาง ${clones.length} รายการแล้ว` : "วางสำเนาแล้ว");
+  }
+
+  function duplicateSelection() {
+    if (!selIdxs.length) return;
+    pasteElements(selIdxs.map((i) => ({ ...band.elements[i] })));
   }
 
   /** ใช้โครงสร้าง (undo ได้); ข้อมูลตัวอย่างเปลี่ยนตามโครงสร้างมาตรฐานเท่านั้น */
@@ -426,6 +611,9 @@ export function ReportDesigner({ initialTemplate, initialData }) {
       return;
     }
     dispatch({ type: "addEl", band: bandIdx, element });
+    if (element.type === "table" && band.type === "detail") {
+      setNotice("เพิ่มตารางแล้ว · band สรุป (Report Footer) อยู่ใต้ Detail — ใส่ยอดรวม / ข้อความท้ายที่นั้น");
+    }
     if (plan.band !== bandIdx) setNotice("วางไว้ใน band สรุปใต้ตาราง (ตารางต้องอยู่ band ของตัวเองลำพัง)");
     setBandIdx(plan.band);
     setSelEl(plan.elIndex);
@@ -455,11 +643,18 @@ export function ReportDesigner({ initialTemplate, initialData }) {
   }
 
   function removeBand(idx = bandIdx) {
-    if (!template.bands[idx]) return;
-    dispatch({ type: "removeBand", band: idx }); // ย้อนกลับได้ด้วย Ctrl/⌘+Z
-    setBandIdx(0);
+    const i = idx ?? bandIdx;
+    if (!template.bands[i]) return;
+    if (template.bands.length <= 1) {
+      setNotice("ต้องเหลือ band อย่างน้อย 1");
+      return;
+    }
+    dispatch({ type: "removeBand", band: i });
+    const nextIdx = Math.max(0, Math.min(i, template.bands.length - 2));
+    setBandIdx(nextIdx);
     setSelEl(null);
-    setNotice(`ลบ band แล้ว (Ctrl/⌘+Z เพื่อย้อนกลับ)`);
+    setExtraSel([]);
+    setNotice("ลบ band แล้ว");
   }
 
   /** ย้ายลำดับซ้อนของรายการที่เลือก (ไปบนสุด/ขึ้น/ลง/ไปล่างสุด) — เลือกรายการเดิมต่อไปหลังย้าย */
@@ -548,6 +743,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
       if (mod && key === "c" && idxs.length) {
         e.preventDefault();
         clipRef.current = idxs.map((i) => ({ ...els[i] }));
+        setHasClip(true);
         setNotice(`คัดลอก ${idxs.length} รายการ`);
         return;
       }
@@ -624,8 +820,16 @@ export function ReportDesigner({ initialTemplate, initialData }) {
     return { row: src ? { source: src, items } : null, scalars: catalog.scalars };
   }, [selected, band, catalog]);
 
+  const placeLabel = useCallback(
+    (place) => {
+      const b = template.bands[place.band];
+      return `${bandTitle(b)} · ${KIND_LABELS[place.elType] ?? place.elType} #${place.el + 1}`;
+    },
+    [template],
+  );
+
   return (
-    <div className="app">
+    <div className="app theme-light layout-report-pro">
       <header className="topbar">
         <div className="brand">
           <span className="logo" aria-hidden="true">TR</span>
@@ -647,16 +851,78 @@ export function ReportDesigner({ initialTemplate, initialData }) {
           onImport={importStructure}
         />
 
-        <div className="btn-group">
-          <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "undo" })} disabled={!doc.past.length} title="ย้อนกลับ (Ctrl/⌘+Z)" aria-label="ย้อนกลับ">
-            <Icon name="undo" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "redo" })} disabled={!doc.future.length} title="ทำซ้ำ (Ctrl/⌘+Shift+Z)" aria-label="ทำซ้ำ">
-            <Icon name="redo" />
-          </Button>
+        <div className="topbar-group" aria-label="แก้ไข">
+          <span className="topbar-group-label">แก้ไข</span>
+          <div className="btn-group edit-tools">
+            <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "undo" })} disabled={!doc.past.length} title="ย้อนกลับ (Ctrl/⌘+Z)" aria-label="ย้อนกลับ">
+              <Icon name="undo" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => dispatch({ type: "redo" })} disabled={!doc.future.length} title="ทำซ้ำ (Ctrl/⌘+Shift+Z)" aria-label="ทำซ้ำ">
+              <Icon name="redo" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!selIdxs.length}
+              onClick={() => {
+                clipRef.current = selIdxs.map((i) => ({ ...band.elements[i] }));
+                setHasClip(true);
+                setNotice(`คัดลอก ${selIdxs.length} รายการ`);
+              }}
+              title="คัดลอก (Ctrl/⌘+C)"
+              aria-label="คัดลอก"
+            >
+              <Icon name="copy" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!hasClip}
+              onClick={() => pasteElements(clipRef.current?.map((el) => ({ ...el })))}
+              title="วาง (Ctrl/⌘+V)"
+              aria-label="วาง"
+            >
+              <Icon name="paste" />
+            </Button>
+            {selIdxs.length >= 2 && (
+              selGroup ? (
+                <Button variant="ghost" size="icon" onClick={() => groupSelection(true)} title="แยกกลุ่ม (Ctrl/⌘+Shift+G)" aria-label="แยกกลุ่ม">
+                  <Icon name="ungroup" />
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" onClick={() => groupSelection(false)} title="จัดกลุ่ม (Ctrl/⌘+G)" aria-label="จัดกลุ่ม">
+                  <Icon name="group" />
+                </Button>
+              )
+            )}
+            <Button variant="ghost" size="icon" disabled={!selIdxs.length} onClick={removeSelected} title="ลบ (Delete)" aria-label="ลบ">
+              <Icon name="trash" />
+            </Button>
+          </div>
         </div>
 
         <div className="topbar-spacer" />
+
+        <div className="view-switch" role="tablist" aria-label="มุมมองรายงาน">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "design"}
+            className={view === "design" ? "is-on" : ""}
+            onClick={() => setView("design")}
+          >
+            ออกแบบรายงาน
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "preview"}
+            className={view === "preview" ? "is-on" : ""}
+            onClick={() => setView("preview")}
+          >
+            ดู PDF
+          </button>
+        </div>
 
         <div className={`status status-${status.tone}`} role="status">
           <span className="dot" />
@@ -676,119 +942,83 @@ export function ReportDesigner({ initialTemplate, initialData }) {
           </Button>
           {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
         </div>
-        <Button variant="outline" onClick={() => importRef.current?.click()}>
-          <Icon name="upload" /> นำเข้า
-        </Button>
-        <input ref={importRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files[0] && importFile(e.target.files[0])} />
-        <Button onClick={exportJson}>
-          <Icon name="download" /> ส่งออก JSON
-        </Button>
+        <div className="topbar-group" aria-label="ไฟล์รายงาน">
+          <span className="topbar-group-label">ไฟล์</span>
+          <Button variant="outline" size="sm" onClick={() => importRef.current?.click()}>
+            <Icon name="upload" /> นำเข้า Template
+          </Button>
+          <input ref={importRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files[0] && importFile(e.target.files[0])} />
+          <Button size="sm" onClick={exportJson}>
+            <Icon name="download" /> ส่งออก Template
+          </Button>
+        </div>
       </header>
 
-      <aside className="toolbox">
-        <section className="section">
-          <h3>เครื่องมือ</h3>
-          <div className="add-grid">
-            {ADD_KINDS.map((k) => (
-              <button
-                key={k.id}
-                type="button"
-                className="add-tile"
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(DND_KIND, k.id);
-                  e.dataTransfer.effectAllowed = "copy";
-                }}
-                onClick={() => addElement(k.id)}
-                disabled={!band}
-                title={`คลิกใส่ใน frame ที่เลือก · หรือลากไปวางใน frame บนกระดาษ`}
-              >
-                <Icon name={k.id === "rect" ? "rect" : k.id} size={18} />
-                <span>{k.label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="hint small muted">ลากเครื่องมือลงในกรอบ band (frame) · ลาก element ข้าม frame ได้</p>
-        </section>
-
-        <section className="section">
-          <h3>Band</h3>
-          {addable.length > 0 ? (
-            <div className="band-add-row">
-              {addable.map((t) => (
-                <button key={t} type="button" className="chip" onClick={() => addBand(t)} title={`เพิ่ม ${BAND_LABELS[t]}`}>
-                  + {BAND_LABELS[t]}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="muted small">มี band ครบทุกชนิดแล้ว</p>
-          )}
-        </section>
-
-        <section className="section tree">
-          <h3>โครงสร้าง</h3>
-          <ul className="bands">
-            {sortedIdx.map(({ b, i: bi }) => (
-              <li key={bi}>
-                <button type="button" className={`band-row-btn${bi === bandIdx ? " is-active" : ""}`} onClick={() => selectBand(bi, null)}>
-                  <span>{bandTitle(b)}</span>
-                  <span className="mono small muted">{b.height} mm</span>
-                </button>
-                {bi === bandIdx && b.elements.length > 0 && (
-                  <ul className="layers" aria-label="ลำดับซ้อน จากบนลงล่าง">
-                    {/* บนสุดแสดงก่อน — ตรงกับการทับกันบนกระดาษ */}
-                    {b.elements.map((el, ei) => ({ el, ei })).reverse().map(({ el, ei }) => (
-                      <li key={ei}>
-                        <button
-                          type="button"
-                          className={`layer${bi === bandIdx && selIdxs.includes(ei) ? " is-active" : ""}`}
-                          onClick={(e) => selectBand(bi, ei, e.shiftKey || e.metaKey || e.ctrlKey)}
-                          title="คลิก เลือก · Shift/⌘-คลิก เลือกหลายรายการ"
-                        >
-                          <Icon name={KIND_OF_TYPE[el.type] ?? "rect"} size={14} />
-                          <span className="layer-name">{KIND_LABELS[el.type] ?? el.type}</span>
-                          {el.group && <span className="group-dot" title={`อยู่ในกลุ่ม ${el.group.slice(-4)}`} />}
-                          <span className="mono small muted">
-                            {el.x}, {el.y}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
+      <aside className="tool-rail" aria-label="กล่องเครื่องมือ">
+        {ADD_KINDS.map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            className="tool-rail-btn"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(DND_KIND, k.id);
+              e.dataTransfer.effectAllowed = "copy";
+            }}
+            onClick={() => addElement(k.id)}
+            disabled={!band}
+            title={`${k.label} — คลิกหรือลากลงบน band ที่เลือก`}
+            aria-label={k.label}
+          >
+            <Icon name={k.id === "rect" ? "rect" : k.id} size={20} />
+          </button>
+        ))}
       </aside>
 
       <main className="workspace">
-        <nav className="view-tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={view === "design"} className={view === "design" ? "is-on" : ""} onClick={() => setView("design")}>
-            ออกแบบ
-          </button>
-          <button type="button" role="tab" aria-selected={view === "preview"} className={view === "preview" ? "is-on" : ""} onClick={() => setView("preview")}>
-            พรีวิว (PDF จริง)
-          </button>
+        <nav className="view-tabs canvas-toolbar" aria-label="เครื่องมือกระดาษ">
+          <span className="canvas-toolbar-title">{view === "design" ? "พื้นที่ออกแบบ" : "พรีวิว PDF"}</span>
           {view === "design" && (
+            <>
+            <button
+              type="button"
+              className={`chip grid-toggle${showGrid ? " is-on" : ""}`}
+              onClick={() => setShowGrid((v) => !v)}
+              title="แสดง/ซ่อนเส้น grid บนกระดาษ"
+            >
+              Grid
+            </button>
             <div className="display-menu">
               <button type="button" className={`chip${showDisplay ? " is-on" : ""}`} onClick={() => setShowDisplay((v) => !v)} aria-expanded={showDisplay}>
                 <Icon name="chevron" size={12} /> การแสดงผล
               </button>
               {showDisplay && (
                 <div className="display-pop" role="dialog" aria-label="การแสดงผลหน้าออกแบบ">
-                  <DisplayRow label="แถวตัวอย่างในตาราง" hint="จำนวนแถวที่วาดบนกระดาษออกแบบ">
-                    <Segment value={sampleRows} onChange={setSampleRows} options={[[3, "3"], [6, "6"], [10, "10"]]} />
+                  <DisplayRow label="แถว placeholder ในตาราง">
+                    <Segment value={sampleRows} onChange={setSampleRows} options={[[1, "1 แถว"], [2, "2"], [3, "3"]]} />
                   </DisplayRow>
-                  <DisplayRow label="ความสูงตาราง" hint="ย่อ = เห็น band ด้านล่างครบ · ตามจริง = สูงเท่าจำนวนแถวจริง">
+                  <DisplayRow label="ความสูง band ตาราง">
                     <Segment value={tableMode} onChange={setTableMode} options={[["compact", "ย่อ"], ["actual", "ตามจริง"]]} />
                   </DisplayRow>
-                  <DisplayRow label="ขนาดตัวอักษรบนกระดาษ" hint="ลดขนาดเพื่อดูภาพรวมของหน้า">
+                  <DisplayRow label="ขนาดตัวอักษรบนกระดาษ">
                     <Segment value={textScale} onChange={setTextScale} options={[[1, "100%"], [0.75, "75%"], [0.5, "50%"]]} />
                   </DisplayRow>
                 </div>
               )}
+            </div>
+            </>
+          )}
+          {view === "design" && (
+            <div className="zoom canvas-zoom">
+              <button type="button" className="icon-btn" onClick={() => stepZoom(-1)} title="ซูมออก (⌘/Ctrl −)">−</button>
+              <select className="select zoom-select" value={zoomMode} onChange={(e) => setZoomMode(e.target.value === "fit" ? "fit" : Number(e.target.value))} aria-label="ซูม">
+                <option value="fit">พอดีความกว้าง</option>
+                {ZOOM_STEPS.map((z) => (
+                  <option key={z} value={z}>{Math.round(z * 100)}%</option>
+                ))}
+                {zoomMode !== "fit" && !ZOOM_STEPS.includes(zoomMode) && <option value={zoomMode}>{Math.round(zoomMode * 100)}%</option>}
+              </select>
+              <button type="button" className="icon-btn" onClick={() => stepZoom(1)} title="ซูมเข้า (⌘/Ctrl +)">+</button>
             </div>
           )}
           <span className="view-meta small muted">
@@ -796,40 +1026,20 @@ export function ReportDesigner({ initialTemplate, initialData }) {
           </span>
         </nav>
 
-        {view === "design" ? (
-          <>
-          {view === "design" && showTips && (
-            <div className="tips" role="note">
-              <span className="tips-text">
-                <strong>เริ่มต้นง่ายๆ:</strong> เลือก band ทางซ้าย → ลากเครื่องมือลงในกรอบ · Shift-คลิกเลือกหลายรายการ แล้วจัดวางด้วยแถบด้านบน · ⌘/Ctrl+G จัดกลุ่ม · กด <kbd>?</kbd> ดูคีย์ลัดทั้งหมด
-              </span>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="ซ่อนคำแนะนำ"
-                title="ซ่อนคำแนะนำนี้"
-                onClick={() => {
-                  writeFlag(TIPS_KEY, "hidden");
-                  setShowTips(false);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-          <div className="stage" ref={stageRef}>
-            {selIdxs.length > 1 && (
-              <SelectionBar
-                count={selIdxs.length}
-                grouped={selGroup}
-                onAlign={alignSelection}
-                onGroup={() => groupSelection(false)}
-                onUngroup={() => groupSelection(true)}
-                onDelete={removeSelected}
-                onReorder={reorderSelected}
-              />
-            )}
-            {stageSize.w > 0 && (
+        <div className="view-stack">
+          <div className="view-stack-inner">
+            <div className={`stage view-pane${view === "design" ? " is-active" : ""}`} ref={stageRef} aria-hidden={view !== "design"}>
+              {view === "design" && selIdxs.length > 1 && (
+                <SelectionBar
+                  count={selIdxs.length}
+                  grouped={selGroup}
+                  onAlign={alignSelection}
+                  onGroup={() => groupSelection(false)}
+                  onUngroup={() => groupSelection(true)}
+                  onDelete={removeSelected}
+                  onReorder={reorderSelected}
+                />
+              )}
               <BandStage
                 template={template}
                 data={data}
@@ -844,6 +1054,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 dispatch={dispatch}
                 onAddBand={addBand}
                 onRemoveBand={removeBand}
+                showGrid={showGrid}
                 S={S}
                 onWheelZoom={stepZoom}
                 onPlaced={(bi, ei) => {
@@ -852,19 +1063,34 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                   setRightTab("props");
                 }}
               />
-            )}
+            </div>
+            <div className={`preview-wrap view-pane${view === "preview" ? " is-active" : ""}`} ref={previewRef} aria-hidden={view !== "preview"}>
+              <PreviewTab
+                pdf={pdf}
+                error={renderError}
+                rendering={rendering}
+                pageWidthPx={previewWidthPx}
+                stats={stats}
+                onRetry={retryPreview}
+              />
+            </div>
           </div>
-          </>
-        ) : (
-          <div className="preview-wrap" ref={previewRef}>
-            <PreviewTab
-              pdf={pdf}
-              error={renderError}
-              rendering={rendering}
-              pageWidthPx={previewWidthPx}
-              stats={stats}
-            />
-          </div>
+        </div>
+
+        {view === "design" && showAnalyzer && (
+          <DesignAnalyzer
+            problems={analysis.problems}
+            filter={analyzerFilter}
+            onFilter={setAnalyzerFilter}
+            onJump={(bi, ei) => selectBand(bi, ei)}
+            placeLabel={placeLabel}
+            onClose={() => setShowAnalyzer(false)}
+          />
+        )}
+        {view === "design" && !showAnalyzer && (
+          <button type="button" className="analyzer-reopen chip" onClick={() => setShowAnalyzer(true)}>
+            เปิดตัววิเคราะห์ ({analysis.problems.length})
+          </button>
         )}
 
         <footer className="statusbar">
@@ -873,18 +1099,16 @@ export function ReportDesigner({ initialTemplate, initialData }) {
               <span className="mono small muted">
                 เนื้อหา {cw} mm · ซูม {Math.round(zoomNow * 100)}%
               </span>
-              <div className="zoom">
-                <button type="button" className="icon-btn" onClick={() => stepZoom(-1)} title="ซูมออก (⌘/Ctrl −)">−</button>
-                <select className="select zoom-select" value={zoomMode} onChange={(e) => setZoomMode(e.target.value === "fit" ? "fit" : Number(e.target.value))} aria-label="ซูม">
-                  <option value="fit">พอดีความกว้าง</option>
-                  {ZOOM_STEPS.map((z) => (
-                    <option key={z} value={z}>{Math.round(z * 100)}%</option>
-                  ))}
-                  {zoomMode !== "fit" && !ZOOM_STEPS.includes(zoomMode) && <option value={zoomMode}>{Math.round(zoomMode * 100)}%</option>}
-                </select>
-                <button type="button" className="icon-btn" onClick={() => stepZoom(1)} title="ซูมเข้า (⌘/Ctrl +)">+</button>
-              </div>
               <span className="mono small muted">{band ? `${bandTitle(band)} · ${band.elements.length} รายการ` : ""}</span>
+              {view === "design" && (
+                <button
+                  type="button"
+                  className={`chip analyzer-toggle${showAnalyzer ? " is-on" : ""}`}
+                  onClick={() => setShowAnalyzer((v) => !v)}
+                >
+                  ตรวจการออกแบบ ({analysis.problems.length})
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -904,38 +1128,39 @@ export function ReportDesigner({ initialTemplate, initialData }) {
       </main>
 
       <aside className="panel">
-        <nav className="tabs" role="tablist">
-          {[
-            ["props", "คุณสมบัติ"],
-            ["page", "หน้ากระดาษ"],
-            ["data", "ข้อมูล"],
-          ].map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={rightTab === id} className={rightTab === id ? "is-on" : ""} onClick={() => setRightTab(id)}>
-              {label}
-              {id === "data" && problemCount > 0 && <span className="tab-badge">{problemCount}</span>}
-            </button>
-          ))}
-        </nav>
+        <div className="panel-shell">
+          <div className="panel-body">
+          {rightTab === "explorer" && (
+            <ReportExplorerTree
+              sortedIdx={sortedIdx}
+              bandIdx={bandIdx}
+              selEl={selEl}
+              selIdxs={selIdxs}
+              onSelectBand={selectBand}
+              onRemoveBand={removeBand}
+              canRemoveBand={template.bands.length > 1}
+              addable={addable}
+              onAddBand={addBand}
+            />
+          )}
 
-        <div className="panel-body">
           {rightTab === "props" &&
             (selected ? (
               <>
               {selIdxs.length > 1 && (
-                <div className="multi-note small">
-                  เลือก {selIdxs.length} รายการ · ค่าที่แก้ด้านล่างมีผลกับรายการหลัก (คลิกล่าสุด) · จัดวางด้วยแถบด้านบนกระดาษ
-                </div>
+                <div className="multi-note small">เลือก {selIdxs.length} รายการ · แก้ค่าด้านล่างมีผลกับรายการหลัก</div>
               )}
               <ElementProps
                 el={selected}
                 onChange={(patch, live) => setEl(patch, live)}
                 onDelete={removeSelected}
-                onDuplicate={() => pasteElements(selIdxs.map((i) => ({ ...band.elements[i] })))}
+                onDuplicate={duplicateSelection}
                 fields={selectedFields}
                 bandOptions={template.bands.map((b, i) => ({ value: i, label: bandTitle(b) }))}
                 bandIndex={bandIdx}
                 onMoveBand={moveSelectedTo}
                 onReorder={reorderSelected}
+                onNotice={setNotice}
               />
               </>
             ) : band ? (
@@ -946,6 +1171,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 onPatch={(patch, live) => setBandPatch(patch, live)}
                 onDelete={removeBand}
                 onAddBand={addBand}
+                canDelete={template.bands.length > 1}
               />
             ) : null)}
 
@@ -962,6 +1188,25 @@ export function ReportDesigner({ initialTemplate, initialData }) {
           {rightTab === "data" && (
             <DataPanel template={template} data={data} onSetData={setData} onReplaceTemplate={replaceTemplate} onNotice={setNotice} />
           )}
+          </div>
+          <nav className="panel-rail" role="tablist" aria-label="แผงคุณสมบัติ">
+            {PANEL_TABS.map(([id, label, icon]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={rightTab === id}
+                className={rightTab === id ? "is-on" : ""}
+                onClick={() => setRightTab(id)}
+                title={label}
+                aria-label={label}
+              >
+                <Icon name={icon} size={18} />
+                <span className="panel-rail-label">{id === "explorer" ? "Explorer" : label.split(" ")[0]}</span>
+                {id === "data" && problemCount > 0 && <span className="tab-badge rail-badge">{problemCount}</span>}
+              </button>
+            ))}
+          </nav>
         </div>
       </aside>
     </div>

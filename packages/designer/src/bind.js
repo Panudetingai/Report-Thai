@@ -101,6 +101,51 @@ export function bindPreview(text, data, ctx = {}) {
     .join("");
 }
 
+/** ชื่อในวงเล็บสี่เหลี่ยมบนกระดาษออกแบบ — แบบ report designer (เช่น [CompanyName]) */
+export function fieldBracketLabel(expr) {
+  const e = expr.trim();
+  if (e === "page") return "Page";
+  if (e === "pages") return "Pages";
+  const path = e.startsWith("item.") ? e.slice(5) : e;
+  const last = (path.split(".").pop() ?? path).replace(/[[\]]/g, "");
+  if (!last) return e;
+  return last
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s.]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join("");
+}
+
+/**
+ * แยกข้อความสำหรับหน้าออกแบบ — แสดง [FieldName] ไม่แสดงค่าจากข้อมูลจริง
+ * @returns {Array<{ text: string, ph?: true } | { raw: string, reason: string }>}
+ */
+export function designBindSegments(text, data, ctx = {}) {
+  if (!text) return [];
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(EXPR)) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    const expr = m[1].trim();
+    const label = `[${fieldBracketLabel(expr)}]`;
+    const r = resolveExpr(expr, data, ctx);
+    if (r.ok) out.push({ text: label, ph: true });
+    else out.push({ raw: label, reason: r.reason });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+export function designDisplay(text, data, ctx = {}) {
+  if (!text) return "";
+  return designBindSegments(text, data, ctx)
+    .map((s) => ("raw" in s ? s.raw : s.text))
+    .join("");
+}
+
 /** รายการ expression ทั้งหมดในข้อความ (ตัดช่องว่างรอบ ๆ ออกแล้ว) */
 export function scanExprs(text) {
   if (!text) return [];

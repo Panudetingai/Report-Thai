@@ -23,7 +23,7 @@ export function StructurePicker({ standard, user, activeId, currentName, onApply
   return (
     <div className="structure-picker">
       <label className="template-pick">
-        <span className="small muted">โครงสร้าง</span>
+        <span className="small muted">แม่แบบรายงาน</span>
         <select className="select structure-select" value={activeId} onChange={(e) => onApply(e.target.value)} aria-label="โครงสร้างเอกสาร">
           {!standard.some((s) => s.id === activeId) && !user.some((s) => s.id === activeId) && (
             <option value={activeId}>{currentName}</option>

@@ -5,6 +5,7 @@ import { bindPreview, bindSegments, lookup, resolveExpr, tableSourceOf } from ".
 import { historyReducer, initialHistory } from "../src/state.js";
 import { analyzeTemplate, buildCatalog, isSafeAuto, remapTemplate, suggestFields } from "../src/fields.js";
 import { parseCsv } from "../src/csv.js";
+import { isDataImageSrc, needsEmbedForPreview } from "../src/image-embed.js";
 
 const DATA = {
   company: { name: "บริษัท ก" },
@@ -148,6 +149,13 @@ const tableBand = () => ({
 const summaryBand = () => ({ type: "summary", height: 10, elements: [] });
 const textEl = (extra = {}) => ({ type: "text", x: 0, y: 0, w: 60, h: 8, text: "ข้อความ", ...extra });
 
+test("วางตารางลง band รายการว่าง → สร้าง band สรุปใต้ Detail", () => {
+  const band = { type: "detail", dataSource: "items", height: 8, elements: [] };
+  const plan = planPlacement({ bands: [band] }, 0, "table");
+  assert.equal(plan.template.bands.length, 2);
+  assert.equal(plan.template.bands[1].type, "summary");
+});
+
 test("วาง element อื่นลง band ตาราง → ไปที่ band สรุปที่ต่อจากตาราง (สร้างให้ถ้ายังไม่มี)", () => {
   const t = { bands: [{ type: "title", height: 10, elements: [] }, tableBand()] };
   const plan = planPlacement(t, 1, "text");
@@ -194,14 +202,20 @@ test("initialHistory และ load ทำให้เทมเพลตถู�
   assert.equal(countStrays(h.template), 0);
 });
 
+test("normalizeTemplate: Detail มีตารางแต่ไม่มี band สรุป → สร้างให้", () => {
+  const n = normalizeTemplate({ bands: [tableBand()] });
+  assert.equal(n.bands.length, 2);
+  assert.equal(n.bands[1].type, "summary");
+});
+
 test("addEl: ข้อความที่เพิ่มลง band ตาราง ไปอยู่ band สรุป และ undo ได้", () => {
   let h = init2({ bands: [tableBand()] }, {});
+  assert.equal(h.template.bands.length, 2, "โหลดแล้วมี band สรุปใต้ Detail");
   h = reduce(h, { type: "addEl", band: 0, element: textEl() });
-  assert.equal(h.template.bands.length, 2);
   assert.equal(countStrays(h.template), 0);
   assert.equal(h.template.bands[1].elements.length, 1);
   h = reduce(h, { type: "undo" });
-  assert.equal(h.template.bands.length, 1);
+  assert.equal(h.template.bands[1].elements.length, 0);
 });
 
 test("transferEl: ลากข้อความจาก band อื่นไปวางใต้ตาราง → band สรุป", () => {
@@ -321,4 +335,18 @@ test("simulatePages: ไม่มีแถวข้อมูล → ไม่ม
   const sim = simulatePages([{ b: detailBand(40), i: 0 }], { items: [] }, 267);
   assert.equal(sim.pages, 1);
   assert.equal(sim.totalMm, 0);
+});
+
+test("รูป: URL/path ต้องฝังเป็น data URL ก่อนพรีวิวใน browser", () => {
+  assert.equal(needsEmbedForPreview("https://figma.com/file/x/cover.png"), true);
+  assert.equal(needsEmbedForPreview("data:image/png;base64,abc"), false);
+  assert.equal(isDataImageSrc("data:image/jpeg;base64,/9j/"), true);
+});
+
+test("analyzeTemplate: รูปที่เป็น URL ถูกแจ้งให้ฝังในเทมเพลต", () => {
+  const template = {
+    bands: [{ type: "detail", height: 40, elements: [{ type: "image", x: 0, y: 0, w: 10, h: 10, src: "https://example.com/a.png" }] }],
+  };
+  const { problems } = analyzeTemplate(template, DATA);
+  assert.ok(problems.some((p) => p.reason === "embed"));
 });

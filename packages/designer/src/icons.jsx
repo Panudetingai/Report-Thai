@@ -39,6 +39,10 @@ const PATHS = {
   zUp: <path d="M12 19V6m0 0-5 5m5-5 5 5" />,
   zDown: <path d="M12 5v13m0 0-5-5m5 5 5-5" />,
   zBack: <g><path d="M4 20h16" /><path d="M12 4v11m0 0-4-4m4 4 4-4" /></g>,
+  page: <g><path d="M8 3h8l4 4v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M16 3v5h5" /></g>,
+  layers: <g><path d="M12 3 3 8l9 5 9-5-9-5z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></g>,
+  sliders: <g><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="8" cy="6" r="2" /><circle cx="14" cy="12" r="2" /><circle cx="10" cy="18" r="2" /></g>,
+  ellipse: <ellipse cx="12" cy="12" rx="9" ry="6" />,
 };
 
 export function Icon({ name, size = 16, className }) {

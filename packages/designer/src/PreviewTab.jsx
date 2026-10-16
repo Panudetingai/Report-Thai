@@ -5,8 +5,9 @@ import { loadDoc, renderFirstPage } from "./preview.js";
  * แท็บพรีวิว: แสดงผล PDF จริงจาก engine ทุกหน้า
  * - หน้าที่ยังไม่เห็นบนจอจะยังไม่ render (IntersectionObserver) เพื่อให้เร็วและเบา
  * - ไม่ต้องกดพรีวิวเอง: เมื่อเปิดแท็บ จะแสดงผลล่าสุดทันที
+ * - เรนเดอร์พัง: ยังคงฉบับล่าสุดที่สำเร็จไว้ให้ดู พร้อมปุ่มลองใหม่ (ไม่ต้องหายไปเปล่า)
  */
-export function PreviewTab({ pdf, error, rendering, pageWidthPx, stats }) {
+export function PreviewTab({ pdf, error, rendering, pageWidthPx, stats, onRetry }) {
   const hostRef = useRef(null);
   const [doc, setDoc] = useState(null);
   const [docError, setDocError] = useState("");
@@ -23,6 +24,8 @@ export function PreviewTab({ pdf, error, rendering, pageWidthPx, stats }) {
   }, [pdf]);
 
   const pages = doc?.numPages ?? stats?.pages ?? 0;
+  const msg = error || docError;
+  const stale = Boolean(pdf) && Boolean(error);
 
   return (
     <section className="preview-tab">
@@ -32,13 +35,30 @@ export function PreviewTab({ pdf, error, rendering, pageWidthPx, stats }) {
         </span>
         {rendering && <span className="small muted">กำลังอัปเดต…</span>}
       </div>
-      {(error || docError) && <div className="banner banner-error">{error || docError}</div>}
+      {msg && (
+        <div className="banner banner-error">
+          <span className="banner-msg">
+            {msg}
+            {stale && " — กำลังแสดงฉบับก่อนหน้าที่เรนเดอร์สำเร็จ"}
+          </span>
+          {onRetry && (
+            <button type="button" className="chip" onClick={onRetry} disabled={rendering}>
+              ลองใหม่
+            </button>
+          )}
+        </div>
+      )}
       <div className="preview-pages" ref={hostRef}>
         {doc &&
           Array.from({ length: doc.numPages }, (_, i) => (
             <PageView key={`${i}-${doc.numPages}`} doc={doc} pageNo={i + 1} widthPx={pageWidthPx} />
           ))}
-        {!doc && !error && <div className="empty">กำลังเตรียมพรีวิว…</div>}
+        {!doc && !msg && <div className="empty">กำลังเตรียมพรีวิว…</div>}
+        {!doc && msg && (
+          <div className="empty">
+            {rendering ? "กำลังเรนเดอร์…" : "ยังไม่มีฉบับที่เรนเดอร์สำเร็จ — แก้ข้อผิดพลาดข้างบนแล้วกด “ลองใหม่”"}
+          </div>
+        )}
       </div>
     </section>
   );
