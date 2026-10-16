@@ -276,7 +276,9 @@ export const AGGREGATE_BANDS = ["groupHeader", "groupFooter", "summary"];
 /** ตัวเลือกการรวมค่า: นับ, รวม/เฉลี่ยของฟิลด์ตัวเลข, และค่ากลุ่ม (เฉพาะหัว/ท้ายกลุ่ม) */
 export function AggregatePicker({ fields, bandType, onPick }) {
   const items = fields?.row?.items ?? [];
-  const numeric = items.filter((f) => f.type === "ตัวเลข");
+  // ตัวเลขจริง หรือข้อความที่แปลงเป็นตัวเลขได้ (เช่น "1,234.50" จาก CSV)
+  const isNumeric = (f) => f.type === "ตัวเลข" || (f.sample != null && f.sample !== "" && !Number.isNaN(Number(String(f.sample).replace(/,/g, ""))));
+  const numeric = items.filter(isNumeric);
   const sums = numeric.length ? numeric : items;
   const groupBand = bandType === "groupHeader" || bandType === "groupFooter";
   return (
@@ -328,7 +330,11 @@ function NameInput({ value, placeholder, onCommit, label = "ชื่อ" }) {
 export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, aggFields, bandType, bandOptions, bandIndex, onMoveBand, onReorder, onNotice, count = 1, frameInfo, groupInfo }) {
   const set = (patch) => onChange(patch, false); // กดครั้งเดียว
   const live = (patch) => onChange(patch, true); // พิมพ์/ลาก/ปรับค่าต่อเนื่อง
-  const appendExpr = (expr) => set({ text: `${el.text ?? ""}{{ ${expr} }}` });
+  // แทรกท้ายข้อความ — เว้นวรรคให้เมื่อข้อความเดิมไม่ได้ลงท้ายด้วยช่องว่าง
+  const appendExpr = (expr) => {
+    const cur = el.text ?? "";
+    set({ text: `${cur}${cur && !/\s$/.test(cur) ? " " : ""}{{ ${expr} }}` });
+  };
   const bandName = bandOptions?.find((o) => o.value === bandIndex)?.label;
   const title = el.type === "rectangle" ? frameLabel(el) : KIND_LABELS[el.type] ?? el.type;
   return (
