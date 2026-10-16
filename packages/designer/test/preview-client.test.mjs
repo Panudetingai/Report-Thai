@@ -12,11 +12,11 @@ import { dirname, join } from "node:path";
 import { initThaireport, isReady, previewTemplate } from "../../client/src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pkgWeb = join(here, "../../../crates/tr-wasm/pkg-web");
+const wasmDir = join(here, "../public/tr-wasm");
 
 const wasmOpts = () => ({
-  moduleUrl: pathToFileURL(join(pkgWeb, "tr_wasm.js")).href,
-  binary: readFileSync(join(pkgWeb, "tr_wasm_bg.wasm")),
+  moduleUrl: pathToFileURL(join(wasmDir, "tr_wasm.js")).href,
+  binary: readFileSync(join(wasmDir, "tr_wasm_bg.wasm")),
 });
 
 const TEMPLATE = {

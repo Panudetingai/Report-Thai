@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alignChanges, groupMembers } from "../src/layout-tools.js";
+import { alignChanges, groupMembers } from "../src/layout-tools.ts";
 
 const els = [
   { x: 10, y: 5, w: 20, h: 10 },

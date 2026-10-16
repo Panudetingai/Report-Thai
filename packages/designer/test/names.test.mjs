@@ -1,8 +1,8 @@
 // ชื่อกรอบ/กลุ่มแบบ Figma: เลขถัดไป, ชื่อเริ่มต้น, ตั้งชื่อตอนเพิ่ม
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanName, frameLabel, groupLabel, nextFrameName, nextGroupName, withFrameNames } from "../src/names.js";
-import { historyReducer, initialHistory } from "../src/state.js";
+import { cleanName, frameLabel, groupLabel, nextFrameName, nextGroupName, withFrameNames } from "../src/names.ts";
+import { historyReducer, initialHistory } from "../src/state.ts";
 
 const rect = (extra = {}) => ({ type: "rectangle", x: 0, y: 0, w: 20, h: 10, ...extra });
 const tpl = (elements) => ({ page: { size: "A4" }, bands: [{ type: "title", height: 40, elements }] });

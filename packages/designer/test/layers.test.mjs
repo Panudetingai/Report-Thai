@@ -1,7 +1,7 @@
 // ต้นไม้เลเยอร์แบบ Figma: กรอบเป็นพ่อ, กลุ่มเป็น node, เรียงบนสุดก่อน
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLayerTree, nodeIndexes, parentFrameOf } from "../src/layers.js";
+import { buildLayerTree, nodeIndexes, parentFrameOf } from "../src/layers.ts";
 
 const frame = { type: "rectangle", x: 0, y: 0, w: 100, h: 50 };
 const inner = { type: "rectangle", x: 10, y: 10, w: 40, h: 20 };

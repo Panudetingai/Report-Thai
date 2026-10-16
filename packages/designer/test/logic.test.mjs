@@ -1,11 +1,11 @@
 // ทดสอบตรรกะที่ไม่ผูกกับ React: การผูกค่า (ให้ตรง engine), undo, แคตตาล็อก, CSV
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bindPreview, bindSegments, lookup, resolveExpr, tableSourceOf } from "../src/bind.js";
-import { historyReducer, initialHistory } from "../src/state.js";
-import { analyzeTemplate, buildCatalog, isSafeAuto, remapTemplate, suggestFields } from "../src/fields.js";
-import { parseCsv } from "../src/csv.js";
-import { isDataImageSrc, needsEmbedForPreview } from "../src/image-embed.js";
+import { bindPreview, bindSegments, lookup, resolveExpr, tableSourceOf } from "../src/bind.ts";
+import { historyReducer, initialHistory } from "../src/state.ts";
+import { analyzeTemplate, buildCatalog, isSafeAuto, remapTemplate, suggestFields } from "../src/fields.ts";
+import { parseCsv } from "../src/csv.ts";
+import { isDataImageSrc, needsEmbedForPreview } from "../src/image-embed.ts";
 
 const DATA = {
   company: { name: "บริษัท ก" },
@@ -138,7 +138,7 @@ test("จับคู่อัตโนมัติได้เมื่ออ�
 });
 
 // ---- กติกา band รายการที่มีตาราง (engine วาดซ้ำทั้ง band ต่อแถว ถ้ามี element อื่นอยู่ด้วย) ----
-import { countStrays, initialHistory as init2, historyReducer as reduce, normalizeTemplate, planMove, planPlacement } from "../src/state.js";
+import { countStrays, initialHistory as init2, historyReducer as reduce, normalizeTemplate, planMove, planPlacement } from "../src/state.ts";
 
 const tableBand = () => ({
   type: "detail",
@@ -269,7 +269,7 @@ test("removeEls: ลบหลาย element พร้อมกัน", () => {
 });
 
 // ---- z-order (ลำดับซ้อน): index สูงอยู่บนสุด ----------------------------------
-import { zOrderPlan } from "../src/state.js";
+import { zOrderPlan } from "../src/state.ts";
 
 test("zOrderPlan: front/back ย้ายรายการที่เลือกไปบนสุด/ล่างสุด คงลำดับสัมพัทธ์", () => {
   assert.deepEqual(zOrderPlan(5, [1, 3], "front"), { order: [0, 2, 4, 1, 3], indexes: [3, 4] });
@@ -304,7 +304,7 @@ test("reorderEls: ปรับลำดับใน band และ undo กล�
 });
 
 // ---- การจำลองการขึ้นหน้าใหม่ (ให้ตรงกับ engine: แถวไม่ถูกหั่นข้ามหน้า) -----------
-import { simulatePages } from "../src/pagination.js";
+import { simulatePages } from "../src/pagination.ts";
 
 const rowsData = (n) => ({ items: Array.from({ length: n }, (_, k) => ({ name: `r${k + 1}` })) });
 const detailBand = (h) => ({ type: "detail", height: h, elements: [{ type: "text", x: 0, y: 0, w: 180, h: 10, text: "{{ item.name }}" }] });

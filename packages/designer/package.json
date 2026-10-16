@@ -9,7 +9,8 @@
     "prebuild": "node scripts/copy-pdfjs.mjs && node scripts/copy-wasm.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test \"test/*.test.mjs\""
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.mjs"
   },
   "dependencies": {
     "@thaireport/client": "file:../client",
@@ -22,9 +23,13 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
     "canvas": "^3.2.3",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
     "vite": "^6.0.7"
   }
 }

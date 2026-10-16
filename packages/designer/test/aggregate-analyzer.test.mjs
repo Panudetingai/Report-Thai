@@ -1,7 +1,7 @@
 // การรวมค่า (Phase 3): ตัวตรวจการออกแบบต้องยอมรับ sum/count/… เฉพาะ band ที่ engine แทนค่าได้
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyzeTemplate } from "../src/fields.js";
+import { analyzeTemplate } from "../src/fields.ts";
 
 const DATA = { items: [{ amount: 10, category: "A" }] };
 const text = (t) => ({ type: "text", x: 0, y: 0, w: 50, h: 5, text: t });
@@ -26,7 +26,7 @@ test("sum ใน band รายการถูกตั้งปัญหาว�
   assert.equal(problems[0].reason, "aggregate");
 });
 
-import { describeAggregate, designDisplay } from "../src/bind.js";
+import { describeAggregate, designDisplay } from "../src/bind.ts";
 
 test("ป้ายการรวมบนกระดาษออกแบบอ่านรู้เรื่อง ไม่ขึ้นเป็นฟิลด์หาย", () => {
   assert.equal(describeAggregate("sum(item.amount)"), "รวม [Amount]");

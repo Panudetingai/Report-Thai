@@ -1,8 +1,8 @@
 // กรอบแบบ Figma frame: ลูกในกรอบ, การวางของลงกรอบ, ลำดับซ้อนกรอบอยู่ใต้ของข้างใน
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { frameAt, frameChildren, placeInFrame, settleOrder, textBoxInFrame, withFrameChildren } from "../src/frames.js";
-import { historyReducer, initialHistory } from "../src/state.js";
+import { frameAt, frameChildren, placeInFrame, settleOrder, textBoxInFrame, withFrameChildren } from "../src/frames.ts";
+import { historyReducer, initialHistory } from "../src/state.ts";
 
 const frame = { type: "rectangle", x: 10, y: 10, w: 60, h: 30 };
 const inText = { type: "text", x: 12, y: 12, w: 40, h: 8, text: "ใน" };
