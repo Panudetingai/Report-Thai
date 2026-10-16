@@ -1,12 +1,19 @@
 // Phase 0 ข้อ 3: WASM/native parity — รันด้วย node parity-wasm.mjs
 // เทียบ wrap_thai + measure_thai_width ระหว่าง WASM (pkg-node) กับ native dump
 import { readFileSync } from "node:fs";
-import { wrap_thai, measure_thai_width, segment_thai } from "./pkg-node/tr_wasm.js";
+import pkg from "./pkg-node/tr_wasm.js";
+const { wrap_thai, measure_thai_width, segment_thai } = pkg;
 
-const root = "..\\..\\";
-const sentences = readFileSync(root + "tests\\golden\\th\\sentences.txt", "utf8").split("\n");
-const font = readFileSync("C:\\Windows\\Fonts\\tahoma.ttf");
-const native = JSON.parse(readFileSync(root + "target\\spike\\parity-native.json", "utf8"));
+import { join } from "node:path";
+const root = join(import.meta.dirname, "..", "..");
+const sentences = readFileSync(join(root, "tests/golden/th/sentences.txt"), "utf8").split("\n");
+const fontPath =
+  process.env.PARITY_FONT ||
+  (process.platform === "win32"
+    ? "C:\\Windows\\Fonts\\tahoma.ttf"
+    : "/System/Library/Fonts/Supplemental/Arial Unicode.ttf");
+const font = readFileSync(fontPath);
+const native = JSON.parse(readFileSync(join(root, "target/spike/parity-native.json"), "utf8"));
 const userDict = JSON.stringify(["วันที่", "เลขที่"]);
 const MAX_W = 595.0 - 48.0 * 2.0;
 

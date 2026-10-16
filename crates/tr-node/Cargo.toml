@@ -10,3 +10,6 @@ crate-type = ["cdylib", "rlib"]
 tr-core = { path = "../tr-core" }
 napi = { version = "2", features = ["napi9"] }
 napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"

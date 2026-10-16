@@ -23,7 +23,12 @@ License กลางของโปรเจกต์: **MIT** (`LICENSE-MIT`, �
 | base64 0.22 (tr-pdf, ถอดภาพ data URL) | MIT/Apache-2.0 | OK (2026-10-14) — เข้ากันได้กับ MIT |
 | ttf-parser 0.25 (tr-text, ตรวจ glyph coverage/.notdef) | MIT/Apache-2.0 | OK (2026-10-14) — เข้ากันได้กับ MIT |
 | Sarabun Regular/Bold (fonts/, google/fonts ofl/sarabun) | OFL 1.1 | OK (2026-10-14, หัว OFL.txt: Sarabun Project 2018) — แจกต่อได้ |
+| Sarabun Light (fonts/Sarabun-Light.ttf, google/fonts ofl/sarabun) | OFL 1.1 | OK (2026-10-14, หัว OFL.txt: Sarabun Project 2018) — แจกต่อได้ |
 | Noto Sans Thai Variable (fonts/, google/fonts ofl/notosansthai) | OFL 1.1 | OK (2026-10-14, หัว OFL.txt: Noto Project 2022) — แจกต่อได้ |
+| tailwindcss 4.3.3 + @tailwindcss/vite 4.3.3 (packages/designer, devDep) | MIT | OK (2026-10-15, node_modules/*/package.json) |
+| class-variance-authority 0.7.1 (designer UI) | Apache-2.0 | OK (2026-10-15) — เข้ากันได้กับ MIT |
+| clsx 2.1.1, tailwind-merge 3.7.0 (designer UI) | MIT | OK (2026-10-15) |
+| shadcn/ui pattern (`packages/designer/src/components/ui/button.jsx` เขียนเองตามรูปแบบ shadcn ไม่ได้ติดตั้ง package) | MIT (แนวทาง shadcn/ui) | OK (2026-10-15) — ถ้าคัดลอก source จริงของ shadcn มาเพิ่ม ให้ใส่ attribution MIT ด้วย |
 | underskrift / pdf_signer | ห้ามรวมถ้าเป็น GPL | ต้องตรวจ Phase 0 ข้อ 5 |
 
 > ถ้าพบ GPL/AGPL ให้หยุดและรายงาน ห้ามใส่ใน core (spec ข้อ 0.5)

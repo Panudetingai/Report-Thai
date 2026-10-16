@@ -4,6 +4,7 @@
 |---|---|---|---|
 | `Sarabun-Regular.ttf` (90,220 bytes) | Sarabun | google/fonts `ofl/sarabun` (ต้นน้ำ Sarabun Project, cadsondemak) | OFL 1.1 ✅ (`OFL.txt`) |
 | `Sarabun-Bold.ttf` (89,804 bytes) | Sarabun Bold | เดียวกัน | OFL 1.1 ✅ |
+| `Sarabun-Light.ttf` (90,440 bytes) | Sarabun Light | google/fonts `ofl/sarabun` (ดาวน์โหลด 2026-10-14) | OFL 1.1 ✅ (`OFL.txt`, หัว Copyright 2018 Sarabun Project) |
 | `NotoSansThai-Variable.ttf` (218,652 bytes, `wght+wdth`) | Noto Sans Thai | google/fonts `ofl/notosansthai` (Noto Project) | OFL 1.1 ✅ (`OFL-NotoSansThai.txt`) |
 
 กติกา (spec ข้อ 0.5 + 4.2):

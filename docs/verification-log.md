@@ -11,6 +11,7 @@
 | 2026-10-14 | thai-break vs uniworld (เทียบ) | spike ข้อ 1 + ข้อ 3 (WASM รันได้ทั้งคู่) | thaibreak ตัดได้จริง / uniworld default ตัดไทยไม่ได้ → เลือก thaibreak หลัก (ดู spike-report ข้อ 6) | ขนาดเดี่ยวราย crate รอ twiggy/cargo-bloat Phase 1 |
 | 2026-10-14 | WASM build shaping+layout (ข้อ 2) | `cargo build -p tr-wasm --target wasm32-unknown-unknown` + `wasm-pack build` (nodejs+web) + รันใน Node 18 ผ่าน | ผ่าน — wasm 2.12 MiB (gzip ~845 KiB); demo browser ที่ `crates/tr-wasm/demo-spike2.html` |
 | 2026-10-14 | WASM/native parity (ข้อ 3) | `dump_parity` vs `node parity-wasm.mjs` (9 บรรทัด/11 visual lines) | ตรงกัน exact string + widths ±0.01 ✅ |
+| 2026-10-14 | WASM/native PDF parity (Phase 2) | `render-parity.mjs` — 3 template + pdf.js raster @1.5x | ภาพ diff **0.000%** (เกณฑ์ ≤0.2%); PDF bytes ต่าง 3–8B (Flate) ✅ |
 | 2026-10-14 | fontdb เวอร์ชัน+license | cargo info fontdb 0.23.0 | MIT ✅ |
 | 2026-10-14 | ฟอนต์ OFL ชุดแรก (Phase 1) | หัวไฟล์ OFL.txt ทั้ง 2 ชุด (Sarabun Project 2018 / Noto Project 2022) + google/fonts สาขา main | OFL 1.1 ทั้งคู่ ✅ ไฟล์ใน `fonts/` (Sarabun R/B + NotoSansThai Variable) |
 | 2026-10-14 | License กลาง (สเปก 6.4) | คำตอบเจ้าของโปรเจกต์ (MIT) | เลือก **MIT** — `LICENSE-MIT` + `Cargo.toml` workspace `license = "MIT"` |

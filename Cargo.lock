@@ -1699,6 +1699,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "napi-build"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b899b545d3aa6dca985939059f258c5488d34e4ecf39c274e20009748f4b846d"
+
+[[package]]
 name = "napi-derive"
 version = "2.16.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3124,6 +3130,7 @@ name = "tr-node"
 version = "0.1.0"
 dependencies = [
  "napi",
+ "napi-build",
  "napi-derive",
  "tr-core",
 ]
@@ -3158,6 +3165,7 @@ dependencies = [
  "thaibreak",
  "tr-core",
  "ttf-parser",
+ "unicode-script",
  "uniworld",
 ]
 
@@ -3169,8 +3177,10 @@ version = "0.1.0"
 name = "tr-wasm"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "serde_json",
  "tr-core",
+ "tr-pdf",
  "tr-text",
  "wasm-bindgen",
 ]

@@ -1,6 +1,9 @@
 /target
 /dist
 /node_modules
+/crates/tr-wasm/pkg-web
+/crates/tr-wasm/pkg-node
+/packages/designer/dist
 /.next
 /out
 *.pdf
