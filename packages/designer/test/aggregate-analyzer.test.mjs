@@ -25,3 +25,14 @@ test("sum ใน band รายการถูกตั้งปัญหาว�
   assert.equal(problems.length, 1);
   assert.equal(problems[0].reason, "aggregate");
 });
+
+import { describeAggregate, designDisplay } from "../src/bind.js";
+
+test("ป้ายการรวมบนกระดาษออกแบบอ่านรู้เรื่อง ไม่ขึ้นเป็นฟิลด์หาย", () => {
+  assert.equal(describeAggregate("sum(item.amount)"), "รวม [Amount]");
+  assert.equal(describeAggregate("sum(item.amount, 0)"), "รวม [Amount]");
+  assert.equal(describeAggregate("count()"), "นับทั้งหมด");
+  assert.equal(describeAggregate("group.value"), "[ค่ากลุ่ม]");
+  assert.equal(describeAggregate("customer.name"), null);
+  assert.equal(designDisplay("รวม {{ sum(item.amount) }} บาท", DATA), "รวม รวม [Amount] บาท");
+});

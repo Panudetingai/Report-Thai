@@ -18,6 +18,7 @@ const SAMPLE_DESC = {
   quotation: "ใบเสนอราคา (ตัวอย่างครบ)",
   receipt: "ใบเสร็จรับเงิน (ตัวอย่างครบ)",
   "guest-registration": "บัตรทะเบียนผู้พัก (ฟอร์มพิมพ์)",
+  "sales-by-category": "รายงานจัดกลุ่ม: หัวกลุ่ม รายการ ยอดรวมย่อย และยอดรวมทั้งสิ้น",
 };
 
 const STORAGE_KEY = "thaireport.structures.v1";

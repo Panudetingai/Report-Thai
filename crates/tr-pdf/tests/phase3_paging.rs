@@ -147,3 +147,24 @@ fn fmt(v: f64) -> String {
     format!("{out}.{frac}")
 }
 
+
+/// ตัวอย่างที่ผู้ใช้จะคัดลอกไปใช้ (templates/sales-by-category.*) ต้องให้ยอดตามที่เขียนไว้
+#[test]
+fn shipped_grouped_sample_has_expected_subtotals() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let t: Value = serde_json::from_str(&std::fs::read_to_string(root.join("templates/sales-by-category.json")).unwrap()).unwrap();
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(root.join("templates/sales-by-category.data.json")).unwrap()).unwrap();
+    let pages = layout(&t, &d);
+    let all: Vec<&String> = pages.iter().flatten().collect();
+    for want in ["หมวด เครื่องเขียน · 4 รายการ", "หมวด อุปกรณ์สำนักงาน · 5 รายการ", "หมวด กระดาษ · 3 รายการ", "หมวด อิเล็กทรอนิกส์ · 3 รายการ"] {
+        assert!(all.iter().any(|s| *s == want), "หัวกลุ่ม {want}");
+    }
+    for want in ["51", "66", "27", "44"] {
+        assert!(all.iter().any(|s| *s == want), "จำนวนรวมย่อย {want}");
+    }
+    for want in ["5,526.50", "8,084.00", "2,045.50", "6,421.00"] {
+        assert!(all.iter().any(|s| *s == want), "ยอดรวมย่อย {want}");
+    }
+    assert!(all.iter().any(|s| *s == "22,077.00"), "ยอดรวมทั้งสิ้น 22,077.00");
+    assert!(all.iter().any(|s| s.starts_with("รวมทั้งสิ้น 15 รายการ")), "จำนวนรายการรวม 15");
+}

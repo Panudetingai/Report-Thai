@@ -270,6 +270,36 @@ export function ZOrderButtons({ onReorder, compact = false }) {
   );
 }
 
+/** band ที่แทรกได้เฉพาะค่ารวม (engine แทนค่าเฉพาะการรวม/กลุ่ม ไม่มีแถวปัจจุบัน) */
+export const AGGREGATE_BANDS = ["groupHeader", "groupFooter", "summary"];
+
+/** ตัวเลือกการรวมค่า: นับ, รวม/เฉลี่ยของฟิลด์ตัวเลข, และค่ากลุ่ม (เฉพาะหัว/ท้ายกลุ่ม) */
+export function AggregatePicker({ fields, bandType, onPick }) {
+  const items = fields?.row?.items ?? [];
+  const numeric = items.filter((f) => f.type === "ตัวเลข");
+  const sums = numeric.length ? numeric : items;
+  const groupBand = bandType === "groupHeader" || bandType === "groupFooter";
+  return (
+    <NativeSelect value="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="แทรกค่ารวม">
+      <option value="">+ แทรกค่ารวม</option>
+      <optgroup label="รวม">
+        <option value="count()">นับรายการ</option>
+        {sums.map((f) => (
+          <option key={f.path} value={`sum(item.${f.path})`}>
+            รวม [{fieldBracketLabel(`item.${f.path}`)}]
+          </option>
+        ))}
+      </optgroup>
+      {groupBand && (
+        <optgroup label="กลุ่ม">
+          <option value="group.value">ค่ากลุ่ม</option>
+          <option value="group.count">จำนวนในกลุ่ม</option>
+        </optgroup>
+      )}
+    </NativeSelect>
+  );
+}
+
 const KIND_ICON = { text: "text", line: "line", rectangle: "rect", ellipse: "ellipse", image: "image", table: "table", checkbox: "checkbox" };
 
 /** ช่องชื่อ: บันทึกเมื่อกด Enter หรือออกจากช่อง (เป็น undo ขั้นเดียว) · Esc = ยกเลิก */
@@ -295,7 +325,7 @@ function NameInput({ value, placeholder, onCommit, label = "ชื่อ" }) {
   );
 }
 
-export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, bandOptions, bandIndex, onMoveBand, onReorder, onNotice, count = 1, frameInfo, groupInfo }) {
+export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, aggFields, bandType, bandOptions, bandIndex, onMoveBand, onReorder, onNotice, count = 1, frameInfo, groupInfo }) {
   const set = (patch) => onChange(patch, false); // กดครั้งเดียว
   const live = (patch) => onChange(patch, true); // พิมพ์/ลาก/ปรับค่าต่อเนื่อง
   const appendExpr = (expr) => set({ text: `${el.text ?? ""}{{ ${expr} }}` });
@@ -357,7 +387,11 @@ export function ElementProps({ el, onChange, onDelete, onDuplicate, fields, band
         <>
           <Section title="ข้อความ">
             <Textarea rows={3} value={el.text ?? ""} onChange={(e) => live({ text: e.target.value })} aria-label="ข้อความ" />
-            <FieldSelect fields={fields} onPick={appendExpr} placeholder="+ แทรกฟิลด์" />
+            {AGGREGATE_BANDS.includes(bandType) ? (
+              <AggregatePicker fields={aggFields} bandType={bandType} onPick={appendExpr} />
+            ) : (
+              <FieldSelect fields={fields} onPick={appendExpr} placeholder="+ แทรกฟิลด์" />
+            )}
           </Section>
           <Section title="ตัวอักษร">
             <div className="grid grid-cols-[minmax(0,1fr)_76px] gap-2">
@@ -706,7 +740,7 @@ function CellRules({ rules, columns, onChange }) {
 
 /* ---------- Band ---------- */
 
-export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, existingTypes, canDelete = true }) {
+export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, existingTypes, canDelete = true, fields }) {
   const missing = BAND_ORDER.filter((t) => !existingTypes.includes(t));
   return (
     <>
@@ -734,8 +768,17 @@ export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, exist
           <Num value={band.gap_before ?? 0} min={0} suffix="mm" label="ระยะก่อน band" onChange={(v, l) => onPatch({ gap_before: v }, l)} />
         </Row>
         {band.type === "groupHeader" && (
-          <Row label="จัดกลุ่มตาม">
-            <Text value={band.groupBy ?? ""} mono placeholder="item.category" onChange={(v) => onPatch({ groupBy: v.trim() ? v.trim() : null }, true)} />
+          <Row label="จัดกลุ่มตาม" stack>
+            <div className="flex gap-1.5">
+              <div className="min-w-0 flex-1">
+                <FieldSelect fields={fields} value={band.groupBy ?? ""} onPick={(v) => onPatch({ groupBy: v }, false)} placeholder={band.groupBy ? band.groupBy : "เลือกฟิลด์…"} />
+              </div>
+              {band.groupBy && (
+                <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => onPatch({ groupBy: null }, false)} title="ไม่จัดกลุ่ม" aria-label="ไม่จัดกลุ่ม">
+                  <Icon name="x" />
+                </Button>
+              )}
+            </div>
           </Row>
         )}
         {band.type === "detail" || band.dataSource ? (

@@ -1128,6 +1128,12 @@ export function ReportDesigner({ initialTemplate, initialData }) {
     [template],
   );
   const previewWidthPx = Math.max(240, (previewW - 64) * previewZoom);
+  // แหล่งแถวของรายการ (band รายการ) — band หัว/ท้ายกลุ่มและสรุปใช้แถวนี้เพื่อการรวมค่าเท่านั้น
+  const detailSrc = useMemo(() => detailSourceOf(template.bands.find((b) => b.type === "detail") ?? {}), [template]);
+  const rowFields = useMemo(() => {
+    const items = catalog.sources.find((x) => x.name === detailSrc)?.fields ?? [];
+    return { row: { source: detailSrc, items }, scalars: catalog.scalars };
+  }, [catalog, detailSrc]);
   const selectedFields = useMemo(() => {
     if (!selected) return null;
     const src = selected.type === "table" ? tableSourceOf(selected, band) : band?.type === "detail" ? detailSourceOf(band) : null;
@@ -1508,6 +1514,8 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 onDelete={removeSelected}
                 onDuplicate={duplicateSelection}
                 fields={selectedFields}
+                aggFields={rowFields}
+                bandType={band?.type}
                 bandOptions={template.bands.map((b, i) => ({ value: i, label: bandTitle(b) }))}
                 bandIndex={bandIdx}
                 onMoveBand={moveSelectedTo}
@@ -1535,6 +1543,7 @@ export function ReportDesigner({ initialTemplate, initialData }) {
                 band={band}
                 bandIndex={bandIdx}
                 existingTypes={existingTypes}
+                fields={rowFields}
                 onPatch={(patch, live) => setBandPatch(patch, live)}
                 onDelete={removeBand}
                 onAddBand={addBand}

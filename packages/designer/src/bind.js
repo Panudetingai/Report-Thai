@@ -122,6 +122,23 @@ export function fieldBracketLabel(expr) {
  * แยกข้อความสำหรับหน้าออกแบบ — แสดง [FieldName] ไม่แสดงค่าจากข้อมูลจริง
  * @returns {Array<{ text: string, ph?: true } | { raw: string, reason: string }>}
  */
+const AGG_LABEL = { sum: "รวม", avg: "เฉลี่ย", min: "ต่ำสุด", max: "สูงสุด", count: "นับ" };
+
+/**
+ * ป้ายบนกระดาษออกแบบสำหรับการรวมค่า/กลุ่ม — ตรงกับที่ engine แทนค่าจริงตอนสร้าง PDF
+ * เช่น sum(item.amount) → "รวม [amount]", group.value → "[ค่ากลุ่ม]" · ไม่ใช่รูปแบบนี้คืน null
+ */
+export function describeAggregate(expr) {
+  const e = expr.trim();
+  if (e === "group.value") return "[ค่ากลุ่ม]";
+  if (e === "group.count") return "[จำนวนในกลุ่ม]";
+  const m = /^(sum|avg|min|max|count)\((.*)\)$/.exec(e);
+  if (!m) return null;
+  const path = m[2].split(",")[0].trim();
+  if (!path) return `${AGG_LABEL[m[1]]}ทั้งหมด`;
+  return `${AGG_LABEL[m[1]]} [${fieldBracketLabel(path)}]`;
+}
+
 export function designBindSegments(text, data, ctx = {}) {
   if (!text) return [];
   const out = [];
@@ -129,6 +146,12 @@ export function designBindSegments(text, data, ctx = {}) {
   for (const m of text.matchAll(EXPR)) {
     if (m.index > last) out.push({ text: text.slice(last, m.index) });
     const expr = m[1].trim();
+    const agg = describeAggregate(expr);
+    if (agg) {
+      out.push({ text: agg, ph: true });
+      last = m.index + m[0].length;
+      continue;
+    }
     const label = `[${fieldBracketLabel(expr)}]`;
     const r = resolveExpr(expr, data, ctx);
     if (r.ok) out.push({ text: label, ph: true });

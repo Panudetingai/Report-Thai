@@ -6,12 +6,15 @@ import receiptTemplate from "../../../templates/receipt.json";
 import receiptData from "../../../templates/receipt.data.json";
 import guestTemplate from "../../../templates/guest-registration.json";
 import guestData from "../../../templates/guest-registration.data.json";
+import salesTemplate from "../../../templates/sales-by-category.json";
+import salesData from "../../../templates/sales-by-category.data.json";
 
 export const SAMPLES = [
   { id: "invoice-full", label: "ใบกำกับภาษี", template: invoiceTemplate, data: invoiceData },
   { id: "quotation", label: "ใบเสนอราคา", template: quotationTemplate, data: quotationData },
   { id: "receipt", label: "ใบเสร็จรับเงิน", template: receiptTemplate, data: receiptData },
   { id: "guest-registration", label: "บัตรทะเบียนผู้พัก", template: guestTemplate, data: guestData },
+  { id: "sales-by-category", label: "ยอดขายตามหมวด (จัดกลุ่ม)", template: salesTemplate, data: salesData },
 ];
 
 export const BLANK = {
