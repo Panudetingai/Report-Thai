@@ -1,0 +1,14 @@
+{
+  "name": "@thaireport/node",
+  "version": "0.1.0",
+  "description": "ThaiReport native engine สำหรับ Node.js / Next.js Route Handler — เรนเดอร์ PDF ภาษาไทยด้วย Rust",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "thaireport.node", "fonts"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

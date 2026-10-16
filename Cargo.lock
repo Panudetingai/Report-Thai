@@ -3400,7 +3400,10 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "serde_json",
  "tr-core",
+ "tr-pdf",
+ "tr-text",
 ]
 
 [[package]]
