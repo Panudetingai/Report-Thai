@@ -1,12 +1,44 @@
+# Rust / WASM build outputs
 /target
-/dist
-/node_modules
 /crates/tr-wasm/pkg-web
 /crates/tr-wasm/pkg-node
-/packages/designer/dist
+
+# Dependencies (ทุกแพ็กเกจ — ใช้ npm install สร้างใหม่)
+node_modules/
+
+# Frontend build & cache
+dist/
+**/dist/
+.vite/
+*.tsbuildinfo
+
+# Next / misc (ถ้ามีใน monorepo)
 /.next
 /out
+
+# สิ่งที่ copy ตอน dev/build (ไม่ commit — รัน predev/prebuild)
+packages/designer/public/pdfjs/
+packages/designer/public/tr-wasm/
+
+# สื่อ / เอกสารชั่วคราว
 *.pdf
 *.png
+
+# OS & editor
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & local scratch
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+typecheck.log

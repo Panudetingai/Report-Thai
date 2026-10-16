@@ -1,2 +1,8 @@
-/public/pdfjs
-/public/tr-wasm
+# สร้างจาก scripts/copy-pdfjs.mjs และ copy-wasm.mjs
+/public/pdfjs/
+/public/tr-wasm/
+
+# Vite cache (ถ้ารันจากโฟลเดอร์นี้)
+node_modules/
+dist/
+.vite/
