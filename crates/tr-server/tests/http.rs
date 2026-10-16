@@ -15,7 +15,7 @@ fn fonts_dir() -> PathBuf {
 
 fn router(templates_dir: Option<PathBuf>, max_body: usize) -> axum::Router {
     let fonts = load_fonts(&fonts_dir()).expect("ฟอนต์");
-    app(Arc::new(AppState { templates_dir, fonts }), max_body)
+    app(Arc::new(AppState { templates_dir, fonts, db: None, queries_dir: None, max_query_rows: 100 }), max_body)
 }
 
 fn small_template() -> Value {

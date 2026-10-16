@@ -2,13 +2,16 @@
 //!
 //! - `GET  /health`    → `{ "ok": true, "version": "…" }`
 //! - `GET  /templates` → รายชื่อไฟล์ template ในโฟลเดอร์ที่ตั้งค่า (ไม่คืน path เต็ม)
-//! - `POST /render`    → body เป็น JSON `{ "template": {…} | "templateName": "x.json", "data": {…} }`
+//! - `POST /render`    → body เป็น JSON `{ "template": {…} | "templateName": "x.json", "data": {…},
+//!                         "sources": { "items": { "query": "invoice_lines", "params": { "id": 1 } } } }`
 //!                       คืน `application/pdf`; ข้อผิดพลาดคืน JSON `{ "ok": false, "error": "…" }`
+//!                       `sources` รันคิวรี SQL ที่ผู้ดูแลตั้งไว้ฝั่งเซิร์ฟเวอร์ แล้วใส่ผลเป็น array ใน data[ชื่อ]
 //!
 //! ความปลอดภัยเริ่มต้น:
 //! - ไม่โหลดรูปจากดิสก์ของเซิร์ฟเวอร์ (base_dir = None) — รูปต้องฝังในเทมเพลตหรือเป็น data URI
 //! - ชื่อ template ห้ามมี path separator หรือ `..`
 //! - จำกัดขนาด body ตามค่า `max_body_bytes`
+//! - SQL: ไคลเอนต์เลือกได้แค่ชื่อคิวรีและค่าพารามิเตอร์ ผูกเป็น prepared statement เสมอ (ดู sql.rs)
 //! - การเรนเดอร์รันใน blocking pool ไม่บล็อก event loop
 //!
 //! หมายเหตุ: ยังไม่มี rate limit, auth, timeout ต่อคำขอ — ต้องวางหลัง reverse proxy ที่จัดการเรื่องเหล่านี้
@@ -21,9 +24,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+pub mod sql;
+
 use serde::Deserialize;
-use serde_json::{json, Value};
-use std::collections::HashMap;
+use serde_json::{json, Map, Value};
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -32,6 +37,12 @@ pub struct AppState {
     pub templates_dir: Option<PathBuf>,
     /// ฟอนต์ที่ใช้ได้ (family → ไบต์) โหลดครั้งเดียวตอนเริ่ม
     pub fonts: HashMap<String, Vec<u8>>,
+    /// ฐานข้อมูลสำหรับ `sources` (None = ไม่ได้ตั้งค่า ใช้ sources ไม่ได้)
+    pub db: Option<sqlx::SqlitePool>,
+    /// โฟลเดอร์ไฟล์คิวรี `*.sql` (ไคลเอนต์เรียกได้เฉพาะชื่อ)
+    pub queries_dir: Option<PathBuf>,
+    /// จำนวนแถวสูงสุดต่อคิวรี
+    pub max_query_rows: usize,
 }
 
 #[derive(Deserialize)]
@@ -41,6 +52,16 @@ struct RenderRequest {
     template_name: Option<String>,
     #[serde(default)]
     data: Value,
+    #[serde(default)]
+    sources: BTreeMap<String, SourceRef>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceRef {
+    query: String,
+    #[serde(default)]
+    params: Map<String, Value>,
 }
 
 /// สร้าง router ทั้งหมด (ใช้ทั้งเซิร์ฟเวอร์จริงและเทสต์)
@@ -96,7 +117,10 @@ async fn render(State(state): State<Arc<AppState>>, body: Bytes) -> Response {
         (Some(_), Some(_)) => return error(StatusCode::BAD_REQUEST, "ระบุ template หรือ templateName อย่างใดอย่างหนึ่ง".into()),
         (None, None) => return error(StatusCode::BAD_REQUEST, "ต้องระบุ template หรือ templateName".into()),
     };
-    let data = req.data;
+    let data = match attach_sources(&state, req.data, &req.sources).await {
+        Ok(d) => d,
+        Err((status, msg)) => return error(status, msg),
+    };
     let outcome = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let template = tr_core::Template::from_json(&template_json)?;
         tr_pdf::render_template(&template, &data, &state.fonts, None)
@@ -114,6 +138,47 @@ async fn render(State(state): State<Arc<AppState>>, body: Bytes) -> Response {
         Ok(Err(e)) => error(StatusCode::BAD_REQUEST, e),
         Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "การเรนเดอร์ล้มเหลวภายใน".into()),
     }
+}
+
+/// รันคิวรีของ `sources` แล้วใส่ผลลง data[ชื่อ] (ข้อมูลที่ส่งมาเองถูกเขียนทับเฉพาะชื่อที่ระบุ)
+async fn attach_sources(
+    state: &AppState,
+    data: Value,
+    sources: &BTreeMap<String, SourceRef>,
+) -> Result<Value, (StatusCode, String)> {
+    if sources.is_empty() {
+        return Ok(data);
+    }
+    let Some(pool) = &state.db else {
+        return Err((StatusCode::BAD_REQUEST, "ไม่ได้ตั้งค่าฐานข้อมูล (TR_DATABASE_URL)".into()));
+    };
+    let Some(dir) = &state.queries_dir else {
+        return Err((StatusCode::BAD_REQUEST, "ไม่ได้ตั้งค่าโฟลเดอร์คิวรี (TR_QUERIES_DIR)".into()));
+    };
+    let mut data = match data {
+        Value::Object(m) => m,
+        Value::Null => Map::new(),
+        _ => return Err((StatusCode::BAD_REQUEST, "data ต้องเป็น object เมื่อใช้ sources".into())),
+    };
+    for (key, src) in sources {
+        if key.is_empty() || key.len() > 64 {
+            return Err((StatusCode::BAD_REQUEST, "ชื่อ source ต้องยาว 1–64 ตัวอักษร".into()));
+        }
+        let text = sql::load_query(dir, &src.query).map_err(query_status)?;
+        let rows = sql::run(pool, &text, &src.params, state.max_query_rows).await.map_err(query_status)?;
+        data.insert(key.clone(), Value::Array(rows));
+    }
+    Ok(Value::Object(data))
+}
+
+fn query_status(e: sql::QueryError) -> (StatusCode, String) {
+    let status = match e {
+        sql::QueryError::NotFound(_) => StatusCode::NOT_FOUND,
+        sql::QueryError::Database => StatusCode::INTERNAL_SERVER_ERROR,
+        sql::QueryError::TooManyRows(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    (status, e.to_string())
 }
 
 fn load_named(state: &AppState, name: &str) -> Result<String, (StatusCode, String)> {

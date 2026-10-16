@@ -5,6 +5,9 @@
 //! - `TR_FONTS_DIR`       โฟลเดอร์ฟอนต์ (ค่าเริ่มต้น ./fonts)
 //! - `TR_TEMPLATES_DIR`   โฟลเดอร์ template (ไม่ตั้ง = ปิด templateName)
 //! - `TR_MAX_BODY_MB`     ขนาด body สูงสุดหน่วย MB (ค่าเริ่มต้น 5)
+//! - `TR_DATABASE_URL`    เช่น sqlite://data/app.db (ไม่ตั้ง = ปิด sources)
+//! - `TR_QUERIES_DIR`     โฟลเดอร์ไฟล์ *.sql ที่ผู้ดูแลเขียน (ไม่ตั้ง = ปิด sources)
+//! - `TR_MAX_QUERY_ROWS`  เพดานแถวต่อคิวรี (ค่าเริ่มต้น 10000)
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,7 +27,19 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let state = Arc::new(AppState { templates_dir, fonts });
+    let db = match std::env::var("TR_DATABASE_URL") {
+        Ok(url) => match sqlx::sqlite::SqlitePoolOptions::new().max_connections(5).connect(&url).await {
+            Ok(pool) => Some(pool),
+            Err(e) => {
+                eprintln!("เชื่อมฐานข้อมูลไม่สำเร็จ: {e}");
+                std::process::exit(1);
+            }
+        },
+        Err(_) => None,
+    };
+    let queries_dir = std::env::var("TR_QUERIES_DIR").ok().map(PathBuf::from);
+    let max_query_rows: usize = std::env::var("TR_MAX_QUERY_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(10_000);
+    let state = Arc::new(AppState { templates_dir, fonts, db, queries_dir, max_query_rows });
     let listener = match tokio::net::TcpListener::bind(&bind).await {
         Ok(l) => l,
         Err(e) => {
