@@ -33,6 +33,11 @@ License กลางของโปรเจกต์: **MIT** (`LICENSE-MIT`, �
 | sqlx 0.8.6 + sqlx-sqlite (Phase 3, tr-server, feature sqlite) | MIT OR Apache-2.0 | OK (2026-10-16, cargo metadata) |
 | libsqlite3-sys 0.30.1 (ตัว SQLite ที่ bundle มา) | MIT (ตัว SQLite เป็น public domain) | OK (2026-10-16) |
 | napi 2.16.17, napi-derive 2.16.13, napi-build 2.6.0 (Phase 3, tr-node) | MIT | OK (2026-10-16, cargo metadata) |
+| rust_decimal 1.43.0 (tr-core, รวมยอดเงินทศนิยมตายตัว) | MIT | OK (2026-10-17, cargo metadata) |
+| rmcp 3.5.1 + rmcp-macros 3.5.1 (tr-mcp, MCP SDK ทางการ) | Apache-2.0 | OK (2026-10-17, cargo metadata) — เข้ากันได้กับ MIT |
+| schemars 1.2.3 (tr-mcp, schema ของ tool) | MIT | OK (2026-10-17) |
+| hayro 0.8.0 + hayro-interpret/hayro-syntax 0.8.0, vello_cpu 0.3.0 (tr-mcp, PDF → PNG สำหรับ preview) | Apache-2.0 OR MIT | OK (2026-10-17, cargo metadata) |
+| self_cell 1.3.0 (มีอยู่เดิม ผ่าน cosmic-text) | Apache-2.0 OR GPL-2.0-only | OK — ใช้ภายใต้ Apache-2.0 (ตรวจ 2026-10-17 ตอน audit ทั้ง tree ของ tr-mcp) |
 | underskrift / pdf_signer | ห้ามรวมถ้าเป็น GPL | ต้องตรวจ Phase 0 ข้อ 5 |
 
 > ถ้าพบ GPL/AGPL ให้หยุดและรายงาน ห้ามใส่ใน core (spec ข้อ 0.5)

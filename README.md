@@ -33,14 +33,21 @@ docs/
 ## เริ่มใช้งาน
 
 ```bash
-# macOS: ถ้า cargo ขึ้น error channel Windows ให้ export RUSTUP_TOOLCHAIN=stable-aarch64-apple-darwin
-cargo test -p tr-core -p tr-thai -p tr-text -p tr-pdf -p tr-cli
+cargo test --workspace --exclude tr-node
 cargo run -p tr-cli -- render templates/invoice-full.json templates/invoice-full.data.json -o out.pdf
 
 # Phase 2 — WASM + Designer
 ./scripts/build-wasm.sh
 cd packages/designer && npm install && npm run dev
+
+# ตรวจว่าทุกฟิลด์ใน {{ }} มีในข้อมูล
+cargo run -p tr-cli -- validate templates/receipt.json templates/receipt.data.json
+
+# MCP server ให้ AI client สร้าง/ตรวจ/พรีวิว/ออก PDF — ดู crates/tr-mcp/README.md
+cargo build --release -p tr-mcp
 ```
+
+HTTP API: `crates/tr-server/README.md` · Node.js: `packages/node/README.md` · MCP: `crates/tr-mcp/README.md`
 
 ดูเกณฑ์ตรวจรับใน `thai-report-spec.md` หัวข้อ 7 (Phase 0) และบันทึกผลใน `docs/spike-report.md`
 

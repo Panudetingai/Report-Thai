@@ -7,7 +7,7 @@
 
 FROM rust:1-bookworm AS build
 WORKDIR /src
-# rust-toolchain.toml ของ repo ปักไว้ที่ toolchain Windows — ใช้ stable ของภาพแทน
+# ใช้ stable ของภาพเสมอ (rust-toolchain.toml ไม่ถูกคัดลอกเข้ามา — ดู .dockerignore)
 ENV RUSTUP_TOOLCHAIN=stable
 COPY . .
 RUN cargo build --release -p tr-server
