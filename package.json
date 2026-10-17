@@ -1,0 +1,10 @@
+{
+  "name": "thaireport-monorepo",
+  "private": true,
+  "description": "npm workspaces ของแพ็กเกจที่ publish ได้ (designer และ node แยกติดตั้งในโฟลเดอร์ของตัวเอง)",
+  "workspaces": ["packages/client", "packages/react"],
+  "scripts": {
+    "build": "npm run build -w @thaireport/react",
+    "test": "npm test -w @thaireport/react"
+  }
+}

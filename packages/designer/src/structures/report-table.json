@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "page": { "size": "A4", "margin": [15, 15, 15, 15], "orientation": "portrait" },
+  "fonts": [{ "family": "Sarabun", "embed": true }, { "family": "Sarabun-Light", "embed": true }],
+  "user_dict": [],
+  "bands": [
+    { "type": "title", "height": 14, "elements": [
+      { "type": "text", "x": 0, "y": 2, "w": 180, "h": 9, "font": "Sarabun", "size": 14, "bold": true, "align": "left", "text": "รายงาน", "overflow": "wrap" }
+    ] },
+    { "type": "detail", "dataSource": "items", "height": 8, "elements": [
+      { "type": "table", "x": 0, "y": 0, "w": 180, "h": 8, "font": "Sarabun-Light", "size": 9, "data_source": "items", "header_repeat": true,
+        "columns": [
+          { "width": 25, "header": "รหัส", "field": "{{ item.code }}", "align": "left" },
+          { "width": 95, "header": "รายการ", "field": "{{ item.name }}", "align": "left" },
+          { "width": 60, "header": "มูลค่า", "field": "{{ item.amount }}", "align": "right" }
+        ] }
+    ] },
+    { "type": "pageFooter", "height": 8, "elements": [
+      { "type": "text", "x": 0, "y": 1, "w": 180, "h": 6, "font": "Sarabun-Light", "size": 8, "align": "right", "text": "หน้า {{ page }} / {{ pages }}", "overflow": "wrap" }
+    ] }
+  ]
+}

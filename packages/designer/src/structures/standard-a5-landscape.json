@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "page": { "size": "A5", "margin": [10, 10, 10, 10], "orientation": "landscape" },
+  "fonts": [{ "family": "Sarabun", "embed": true }, { "family": "Sarabun-Light", "embed": true }],
+  "user_dict": [],
+  "bands": [
+    { "type": "title", "height": 14, "elements": [
+      { "type": "text", "x": 0, "y": 2, "w": 190, "h": 9, "font": "Sarabun", "size": 14, "bold": true, "align": "center", "text": "ชื่อเอกสาร", "overflow": "wrap" }
+    ] },
+    { "type": "detail", "dataSource": "items", "height": 8, "elements": [
+      { "type": "table", "x": 0, "y": 0, "w": 190, "h": 8, "font": "Sarabun-Light", "size": 9, "data_source": "items", "header_repeat": true,
+        "columns": [
+          { "width": 20, "header": "ลำดับ", "field": "{{ item.no }}", "align": "center" },
+          { "width": 110, "header": "รายการ", "field": "{{ item.name }}", "align": "left" },
+          { "width": 30, "header": "จำนวน", "field": "{{ item.qty }}", "align": "right" },
+          { "width": 30, "header": "รวม", "field": "{{ item.amount }}", "align": "right" }
+        ] }
+    ] },
+    { "type": "summary", "gap_before": 3, "height": 12, "elements": [
+      { "type": "text", "x": 120, "y": 1, "w": 40, "h": 5, "font": "Sarabun", "size": 9, "bold": true, "align": "right", "text": "รวมทั้งสิ้น {{ total }}", "overflow": "wrap" }
+    ] }
+  ]
+}

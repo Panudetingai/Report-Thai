@@ -192,17 +192,24 @@ pub fn baht_text(amount: f64) -> String {
     if !amount.is_finite() {
         return String::new();
     }
-    let negative = amount < 0.0;
-    let total_satang = (amount.abs() * 100.0).round() as u64;
+    let total_satang = (amount.abs() * 100.0).round() as i64;
+    baht_text_satang(if amount < 0.0 { -total_satang } else { total_satang })
+}
+
+/// จำนวนเงินเป็นสตางค์ (จำนวนเต็ม) → ตัวอักษรไทย เช่น 120050 → "หนึ่งพันสองร้อยบาทห้าสิบสตางค์"
+/// ใช้เมื่อปัดทศนิยมมาแล้วอย่างแม่นยำ (เช่นจาก Decimal) เพื่อไม่ผ่าน f64
+pub fn baht_text_satang(total_satang: i64) -> String {
+    let negative = total_satang < 0;
+    let total_satang = total_satang.unsigned_abs();
     let baht = total_satang / 100;
     let satang = total_satang % 100;
 
     let mut out = String::new();
-    if negative {
-        out.push_str("ลบ");
-    }
     if baht == 0 && satang == 0 {
         return "ศูนย์บาทถ้วน".to_string();
+    }
+    if negative {
+        out.push_str("ลบ");
     }
     if baht > 0 {
         out.push_str(&read_integer(baht));

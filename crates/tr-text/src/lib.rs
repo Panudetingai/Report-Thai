@@ -28,11 +28,38 @@ pub fn insert_break_opportunities(text: &str) -> String {
     thaibreak::lines(text, "​", false)
 }
 
+/// ไม่ใช้ฟอนต์สำรองของระบบ (macOS/Linux) — วัดด้วยฟอนต์ที่ฝังในเอกสารเท่านั้น
+/// เหตุผล: fallback ของ PlatformFallback ดึง Thonburi/Ayuthaya มาวัดอักขระที่ Sarabun ไม่มี
+/// ทำให้ความกว้างที่ใช้จัดกึ่งกลาง/ชิดขวาเพี้ยนจาก PDF ที่วาดจริง (และจาก WASM ซึ่งไม่มีฟอนต์ระบบ)
+#[derive(Debug)]
+struct BundledOnlyFallback;
+
+impl cosmic_text::Fallback for BundledOnlyFallback {
+    fn common_fallback(&self) -> &[&'static str] {
+        &[]
+    }
+    fn forbidden_fallback(&self) -> &[&'static str] {
+        &[]
+    }
+    fn script_fallback(&self, _script: unicode_script::Script, _locale: &str) -> &[&'static str] {
+        &[]
+    }
+}
+
+/// FontSystem ที่เห็นเฉพาะฟอนต์ที่โหลดเข้าไปเอง — ผลวัดเหมือนกันทั้ง native และ WASM
+fn bundled_only_font_system() -> cosmic_text::FontSystem {
+    cosmic_text::FontSystem::new_with_locale_and_db_and_fallback(
+        "th-TH".to_string(),
+        fontdb::Database::new(),
+        BundledOnlyFallback,
+    )
+}
+
 /// สร้าง FontSystem พร้อมฟอนต์ทดสอบ และคืนชื่อ family ของฟอนต์นั้น
 /// สำคัญ: วัดความกว้างต้องระบุ family ตัวเดียวกับที่ krilla ใช้วาด
 /// ห้ามใช้ SansSerif ลอยๆ — fontdb อาจจับคู่ฟอนต์ระบบตัวอื่นที่กว้างไม่เท่ากัน
 fn thai_font_system(font_data: &[u8]) -> (cosmic_text::FontSystem, String) {
-    let mut font_system = cosmic_text::FontSystem::new();
+    let mut font_system = bundled_only_font_system();
     let ids = font_system.db_mut().load_font_source(fontdb::Source::Binary(
         std::sync::Arc::new(font_data.to_vec()),
     ));
@@ -306,6 +333,7 @@ pub fn load_bundled_fonts(fonts_dir: &std::path::Path) -> std::collections::Hash
     let candidates = [
         ("Sarabun", "Sarabun-Regular.ttf"),
         ("Sarabun-Bold", "Sarabun-Bold.ttf"),
+        ("Sarabun-Light", "Sarabun-Light.ttf"),
         ("NotoSansThai", "NotoSansThai-Variable.ttf"),
     ];
     for (family, file) in candidates {
@@ -320,6 +348,12 @@ pub fn load_bundled_fonts(fonts_dir: &std::path::Path) -> std::collections::Hash
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ฟอนต์ทดสอบ = Sarabun ที่ bundle มากับ repo (OFL) ทำให้เทสต์รันได้ทุกเครื่อง
+    fn test_font() -> Vec<u8> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fonts/Sarabun-Regular.ttf");
+        std::fs::read(path).expect("ต้องมี fonts/Sarabun-Regular.ttf")
+    }
     #[test]
     fn segment_thaibreak_splits_long_sentence() {
         let v = segment_thai("บริษัทนี้ให้บริการรับทำบัญชีและยื่นภาษีครบวงจร");
@@ -343,8 +377,7 @@ mod tests {
 
     #[test]
     fn wrap_splits_newlines_and_strips_controls() {
-        let font = std::fs::read(r"C:\Windows\Fonts\tahoma.ttf")
-            .expect("ต้องมี Tahoma บนเครื่องทดสอบ");
+        let font = test_font();
         // ข้อความ template มี \n ระหว่างบรรทัด — ต้องแยกย่อหน้า ห้ามส่ง \n ลง PDF
         let wrapped = wrap_thai("บริษัท ตัวอย่าง จำกัด\n123 ถนนสุขุมวิท", &font, 11.0, 510.0, &[]);
         assert_eq!(wrapped.len(), 2, "ต้องแยกเป็น 2 บรรทัด ได้ {wrapped:?}");
@@ -360,8 +393,7 @@ mod tests {
 
     #[test]
     fn wrap_force_breaks_long_unbreakable_chunk() {
-        let font = std::fs::read(r"C:\Windows\Fonts\tahoma.ttf")
-            .expect("ต้องมี Tahoma บนเครื่องทดสอบ");
+        let font = test_font();
         // เลขเอกสารติดคำไทยโดยไม่มีจุดตัด (เคสจริง: เลยขอบกระดาษ)
         let chunk = "เลขที่ RC-2569-00078วันที่14ตุลาคม2569";
         let wrapped = wrap_thai(chunk, &font, 11.0, 170.0, &[]);
@@ -382,8 +414,7 @@ mod tests {
 
     #[test]
     fn wrap_thai_keeps_long_sentence_inside_width() {
-        let font = std::fs::read(r"C:\Windows\Fonts\tahoma.ttf")
-            .expect("ต้องมี Tahoma บนเครื่องทดสอบ");
+        let font = test_font();
         let long = "ประโยคยาวไม่มีวรรค: บริษัทนี้ให้บริการรับทำบัญชีและยื่นภาษีครบวงจรทั่วประเทศโดยไม่หยุดพัก";
         let wrapped = wrap_thai(long, &font, 16.0, 499.0, &[]);
         assert!(wrapped.len() >= 2, "บรรทัดยาวต้องถูกตัด, ได้ {wrapped:?}");
@@ -409,8 +440,7 @@ mod tests {
             segment_thai_with_dict("วันที่", &["วันที่"]),
             vec!["วันที่"]
         );
-        let font = std::fs::read(r"C:\Windows\Fonts\tahoma.ttf")
-            .expect("ต้องมี Tahoma บนเครื่องทดสอบ");
+        let font = test_font();
         let line = "ตัวเลขผสม: ใบกำกับภาษีเลขที่ INV-2569-00123 ยอด 12345.67 บาท วันที่ 14/10/2569";
         // "เลขที่" ก็โดนตัดเป็น "เลข|ที่" เหมือนกัน — เติมทั้งคู่
         let wrapped = wrap_thai(line, &font, 16.0, 499.0, &["วันที่", "เลขที่"]);

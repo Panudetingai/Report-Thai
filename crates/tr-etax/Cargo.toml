@@ -6,12 +6,17 @@ license.workspace = true
 
 [dependencies]
 tr-core = { path = "../tr-core" }
-
-[dev-dependencies]
 # Phase 0 ข้อ 5 spike เท่านั้น (ห้ามเลื่อนขึ้น dependencies หลักจนกว่า Phase 4 จะตัดสิน)
-underskrift = "0.1"
-tokio = { version = "1", features = ["macros", "rt"] }
+underskrift = { version = "0.1", optional = true }
+tokio = { version = "1", features = ["macros", "rt"], optional = true }
+# vendored: spike รันบน Windows CI/เครื่อง dev ได้โดยไม่ต้องติดตั้ง OpenSSL ระบบ
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 [features]
 default = []
 etax = []
+spike = ["dep:underskrift", "dep:tokio", "dep:openssl"]
+
+[[example]]
+name = "spike_item5"
+required-features = ["spike"]

@@ -1,0 +1,590 @@
+/* ThaiReport Report Designer — แถบเครื่องมือ | พื้นที่ band | property grid */
+
+/* Tailwind (utilities เท่านั้น ไม่ใช้ preflight เพื่อไม่ทับ CSS เดิม) + token แบบ shadcn/ui
+   ลำดับ layer: กฎพื้นฐานของ element อยู่ใน base เพื่อให้ utility ของ Tailwind ชนะได้
+   (CSS ที่ไม่อยู่ใน layer จะชนะทุก layer — เดิม `button { color: inherit }` ทับ text-primary-foreground) */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-background: var(--panel);
+  --color-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--sunken);
+  --color-muted: var(--sunken);
+  --color-muted-foreground: var(--muted);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--accent);
+  --color-destructive: var(--danger);
+  --color-accent: var(--sunken);
+  --color-accent-foreground: var(--text);
+  --color-accent-soft: var(--accent-soft);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--text);
+  --radius-md: var(--radius-sm);
+  --font-sans: "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Light.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Sarabun"; src: url("../../../fonts/Sarabun-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+
+:root {
+  /* โทนกลาง zinc (ตรงกับ shadcn/ui default) — ปรับสีแบรนด์ที่ --accent */
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --sunken: #f4f4f5;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --text: #18181b;
+  --muted: #71717a;
+  --accent: #2563eb;
+  --accent-soft: #eff4ff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --ok: #16a34a;
+  --warn: #b45309;
+  --guide: #e0457b;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 2px rgb(24 24 27 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(24 24 27 / 0.10), 0 2px 4px -2px rgb(24 24 27 / 0.06);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@layer base {
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+h2, h3 { margin: 0; font-weight: 700; }
+h3 { font-size: 11.5px; letter-spacing: 0.03em; color: var(--muted); text-transform: uppercase; margin-bottom: 9px; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* คอมโพเนนต์ shadcn (มี data-slot) เริ่มจากศูนย์ เพราะไม่ได้ใช้ preflight — กันขอบ/พื้นปุ่มของเบราว์เซอร์ */
+[data-slot] { margin: 0; padding: 0; border: 0 solid var(--line); background: transparent; }
+/* preflight ขั้นต่ำ: ปุ่ม/รายการไม่มีหน้าตาของเบราว์เซอร์ — กฎของคลาสเดิม (ไม่อยู่ใน layer) ยังชนะเสมอ */
+button { margin: 0; padding: 0; border: 0 solid var(--line); background: transparent; text-align: inherit; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+dl, dd { margin: 0; }
+table { border-collapse: collapse; }
+}
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.warn { color: var(--warn); font-weight: 600; }
+
+/* ---------- layout ---------- */
+.app {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-areas: "top top top" "tool work panel";
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---------- top bar ---------- */
+
+ .chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: var(--panel);
+  font-weight: 600; font-size: 13px; white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+ .chip:hover:not(:disabled) { background: var(--sunken); border-color: #aeb7c5; }
+.chip { height: 24px; padding: 0 8px; border-radius: 999px; font-size: 12px; }
+.chip.is-on { background: var(--text); color: #fff; border-color: var(--text); }
+
+.select {
+  height: 30px; padding: 0 24px 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23697282' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center;
+  appearance: none; font-weight: 600; font-size: 13px;
+}
+   @keyframes pulse { 50% { opacity: 0.3; } }
+
+/* ---------- toolbox (ซ้าย) ---------- */
+.section { padding: 12px; border-bottom: 1px solid var(--line); }
+.band-add-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.bands { list-style: none; margin: 0; padding: 0; }
+.band-row-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: none; text-align: left; font-weight: 600; font-size: 13px; }
+.band-row-btn:hover { background: var(--sunken); }
+.band-row-btn.is-active { background: var(--accent-soft); color: #1d3aa0; }
+.layers { list-style: none; margin: 2px 0 6px 10px; padding: 0 0 0 8px; border-left: 1px solid var(--line); }
+
+/* ---------- workspace (กลาง) ---------- */
+.workspace { grid-area: work; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); position: relative; }
+
+.view-stack { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.view-stack-inner { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.view-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.view-stack-inner > .view-pane:not(.is-active) { visibility: hidden; pointer-events: none; position: absolute; inset: 0; z-index: 0; }
+.view-stack-inner > .view-pane.is-active { position: relative; z-index: 1; }
+.stage, .preview-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.band-guide-text { line-height: 1.45; margin: 0 0 4px; }
+.table-ghost--design .tg-row--placeholder .tg-cell { font-style: normal; }
+.design-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px 28px 48px; background: radial-gradient(ellipse 120% 80% at 50% 0%, #f3f6fc 0%, var(--bg) 55%); }
+.design-frame { position: relative; margin: 0 auto; }
+.design-sheet {
+  padding: 14px 12px 18px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 40px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+.hruler { position: relative; background: linear-gradient(180deg, #fafbfc, #f3f5f8); border-bottom: 1px solid var(--line-strong); font-family: var(--mono); font-size: 10px; color: var(--muted); border-radius: 8px 8px 0 0; }
+.htick { position: absolute; bottom: 0; width: 1px; height: 5px; background: #b3bac6; }
+.htick.major { height: 10px; background: #7d8594; }
+.htick em { position: absolute; left: 3px; top: 0; font-style: normal; }
+
+.band-row { position: relative; display: flex; align-items: stretch; gap: 0; overflow: visible; }
+.band-tag-slot { flex: none; display: flex; align-self: stretch; align-items: stretch; height: 100%; min-height: 0; padding-right: 0; }
+.band-tag-wrap { position: relative; width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.band-canvas-row { flex: 1; display: flex; align-items: stretch; min-width: 0; height: 100%; }
+.band-tag {
+  width: 100%; height: 100%; min-height: 0; box-sizing: border-box;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 7px 9px; border: 1px solid var(--line);
+  border-radius: 10px; background: linear-gradient(180deg, #fff, #f8fafc); color: var(--text); text-align: left;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.band-row.is-compact .band-tag { padding: 5px 8px; }
+.band-tag-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--band-accent, #64748b); flex-shrink: 0; box-shadow: 0 0 0 2px color-mix(in srgb, var(--band-accent, #64748b) 25%, transparent); }
+.band-tag-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.band-tag-name { font-size: 12px; font-weight: 700; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band-tag-meta { font-size: 10px; font-weight: 500; color: var(--muted); }
+.band-row.is-active .band-tag { border-color: color-mix(in srgb, var(--band-accent, var(--accent)) 45%, var(--line)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.margin-strip { flex: none; background: linear-gradient(135deg, #f1f3f7 25%, #e9edf3 25%, #e9edf3 50%, #f1f3f7 50%, #f1f3f7 75%, #e9edf3 75%); background-size: 8px 8px; border-radius: 4px; opacity: 0.85; }
+.band-area.band-frame {
+  position: relative; flex: none; border-radius: 10px;
+  background-color: #fcfdff;
+  background-image: linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: var(--cell, 10px) var(--cell, 10px);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+  border: 2px solid transparent;
+  overflow: hidden;
+}
+.frame-label {
+  position: absolute; top: 6px; left: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted); opacity: 0.65; pointer-events: none; user-select: none;
+}
+.band-row.is-active .band-area.band-frame {
+  border-color: color-mix(in srgb, var(--frame-accent, var(--accent)) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--frame-accent, var(--accent)) 25%, transparent),
+    0 0 0 3px var(--accent-soft);
+}
+.band-row.is-drop .band-area.band-frame {
+  border-color: var(--ok);
+  background-color: rgba(18, 161, 80, 0.06);
+  box-shadow: 0 0 0 3px rgba(18, 161, 80, 0.18);
+}
+.band-resize { position: absolute; left: 0; right: 0; bottom: -4px; height: 8px; cursor: ns-resize; z-index: 3; }
+.band-resize:hover { background: rgba(47, 91, 214, 0.25); }
+.design-foot { padding-top: 10px; }
+
+.el { position: absolute; border: 1px solid rgba(47, 91, 214, 0.45); background: rgba(47, 91, 214, 0.05); cursor: move; touch-action: none; user-select: none; overflow: hidden; }
+.el:hover { border-color: var(--accent); }
+.el.el-rect { border-color: rgba(90, 105, 135, 0.7); background: rgba(120, 130, 150, 0.06); }
+.el.el-ellipse { border-color: rgba(90, 105, 135, 0.7); }
+.el.el-image { background: repeating-linear-gradient(45deg, #f3f5f9 0 5px, #e8ecf3 5px 10px); border-style: dashed; overflow: hidden; }
+.el.el-image .el-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.el.el-image:has(.el-img) { background: #fff; border-style: solid; }
+.el.el-table { background: rgba(47, 91, 214, 0.02); border-style: dashed; }
+.el.is-line { background: rgba(47, 91, 214, 0.85); border: 0; cursor: ns-resize; overflow: visible; }
+/* อยู่เหนือแถบปรับความสูง band (z 3) เพื่อให้จับมุมย่อ/ขยายของ element ชิดขอบล่างได้ */
+.el.is-selected { border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px rgba(47, 91, 214, 0.15); z-index: 4; }
+.el.is-line.is-selected { background: var(--accent); box-shadow: none; }
+.el-content {
+  display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;
+  padding: 0 2px; line-height: 1.25; white-space: pre-wrap; pointer-events: none; font-family: "Sarabun", sans-serif;
+}
+.el-kind-fallback { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; font-weight: 700; color: var(--muted); pointer-events: none; }
+.el-tag { position: absolute; top: -1px; left: -1px; transform: translateY(-100%); padding: 1px 5px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 9px; font-weight: 600; white-space: nowrap; pointer-events: none; display: none; z-index: 1; }
+.el.tag-inside .el-tag { top: auto; bottom: 1px; left: 1px; transform: none; opacity: 0.92; }
+.el:hover .el-tag, .el.is-selected .el-tag { display: block; }
+.band-row.is-compact .el-tag { display: none !important; }
+.band-row.is-compact .el.is-selected .el-tag { display: block !important; }
+.el-handle { position: absolute; right: -5px; bottom: -5px; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--accent); border-radius: 2px; cursor: nwse-resize; z-index: 4; }
+.el-img-hint { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: #7a8294; }
+
+.dim { position: absolute; background: var(--accent); pointer-events: none; }
+.dim-h { height: 1px; }
+.dim-v { width: 1px; }
+.dim-label { position: absolute; padding: 1px 5px; border-radius: 4px; background: rgba(23, 26, 33, 0.82); color: #fff; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; transform: translateX(-50%); opacity: 0.92; }
+.dim { opacity: 0.55; }
+.guide { position: absolute; background: var(--guide); pointer-events: none; }
+.guide-v { top: 0; bottom: 0; width: 1px; }
+.guide-h { left: 0; right: 0; height: 1px; }
+.readout { position: absolute; padding: 2px 7px; border-radius: 5px; background: rgba(23, 26, 33, 0.9); color: #fff; font-family: var(--mono); font-size: 11px; white-space: nowrap; pointer-events: none; z-index: 5; }
+
+.zoom { display: flex; align-items: center; gap: 4px; }
+.toast { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px; background: var(--text); color: #fff; font-size: 13px; animation: toast 2.4s ease forwards; pointer-events: none; z-index: 6; }
+@keyframes toast { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+.banner { margin: 10px 16px 0; padding: 7px 12px; border-radius: var(--radius-sm); font-size: 13px; white-space: pre-wrap; }
+.banner-error { background: var(--danger-soft); color: var(--danger); display: flex; align-items: center; gap: 10px; }
+.banner-error .banner-msg { flex: 1 1 auto; min-width: 0; }
+.banner-error .chip { flex: 0 0 auto; border-color: currentColor; color: inherit; background: transparent; }
+.banner-error .chip:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- preview tab ---------- */
+.preview-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.preview-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; }
+.preview-pages { flex: 1; overflow: auto; padding: 8px 24px 40px; display: flex; flex-direction: column; align-items: center; gap: 26px; }
+.page-box { position: relative; background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.1), 0 10px 30px rgba(16, 24, 40, 0.14); min-height: 120px; }
+.page-box canvas { display: block; }
+.page-no { position: absolute; right: 0; bottom: -18px; }
+.empty { display: grid; place-items: center; height: 200px; color: var(--muted); }
+
+/* ---------- property grid (ขวา) ---------- */
+.panel { grid-area: panel; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); }
+.tabs button { height: 28px; border: 0; border-radius: var(--radius-sm); background: none; font-weight: 600; font-size: 13px; color: var(--muted); }
+.tabs button:hover { background: var(--sunken); }
+.tabs button.is-on { background: var(--text); color: #fff; }
+
+ .cols input {
+  width: 100%; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); font-size: 13px;
+}
+ .cols input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.segmented { display: inline-flex; width: 100%; padding: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--sunken); }
+.segmented button { flex: 1; height: 22px; border: 0; border-radius: 4px; background: none; font-size: 12px; font-weight: 600; color: var(--muted); }
+.segmented button.is-on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.cols { display: flex; flex-direction: column; gap: 8px; }
+.tok-missing { background: var(--danger-soft); color: var(--danger); border-radius: 3px; padding: 0 2px; font-weight: 700; text-decoration: underline wavy; text-decoration-skip-ink: none; }
+.tok-field {
+  color: #1d4ed8; font-weight: 600; background: #eff4ff; border-radius: 3px; padding: 0 3px;
+  font-family: var(--mono); font-size: 0.92em; letter-spacing: 0.01em;
+}
+
+/* ข้อมูล (แท็บขวา) */
+.search { width: 100%; height: 30px; margin: 4px 0 6px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font-size: 13px; }
+.search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.badge { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); font-size: 11px; font-weight: 600; color: var(--muted); }
+.problem-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.problem { border: 1px solid #f3c6c1; background: #fff8f7; border-radius: var(--radius-sm); padding: 7px 8px; display: flex; flex-direction: column; gap: 4px; }
+.problem-norows, .problem-unsupported { border-color: var(--line); background: var(--sunken); }
+.problem-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.problem-expr { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem .place { white-space: nowrap; }
+.problem-fix { display: flex; gap: 6px; }
+.problem-fix .select { flex: 1; min-width: 0; height: 28px; font-size: 12.5px; font-weight: 500; }
+.type-badge { font-size: 10.5px; font-weight: 700; padding: 0 6px; border-radius: 999px; background: var(--sunken); color: var(--muted); border: 1px solid var(--line); }
+.type-num { color: #1d4ed8; background: #eff4ff; border-color: #cfdcff; }
+.type-date { color: #7c3aed; background: #f5f0ff; border-color: #e0d2ff; }
+.type-bool { color: #0f766e; background: #ecfdf8; border-color: #bff0e2; }
+.type-list { color: #b25e09; background: #fff7ea; border-color: #fbdcaa; }
+.type-empty { color: var(--muted); }
+
+/* แถบบน: ตัวบอกการผูกข้อมูล + คีย์ลัด */
+.band-add { display: flex; flex-wrap: wrap; gap: 5px; }
+.code { width: 100%; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; background: var(--sunken); }
+
+/* คอลัมน์ตาราง: สไตล์รายคอลัมน์ และกฎสีเซลล์ */
+
+.table-ghost { display: flex; flex-direction: column; height: 100%; overflow: hidden; line-height: 1.2; pointer-events: none; }
+.table-ghost .tg-row { display: flex; }
+.table-ghost .tg-head, .table-ghost .tg-cell { min-width: 0; padding: 1px 3px; border-right: 1px solid rgba(0,0,0,0.12); border-bottom: 1px solid rgba(0,0,0,0.12); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.table-ghost .tg-foot { color: #7a8294; padding: 2px 3px; font-family: var(--mono); }
+.table-ghost .tg-more { flex: 1; min-height: 14px; display: flex; align-items: center; padding: 2px 4px; color: var(--accent); background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(47,91,214,0.05) 6px 12px); border-bottom: 1px dashed rgba(47,91,214,0.35); }
+
+/* ตัวเลือกโครงสร้าง */
+
+/* เพิ่ม/ลบ band จากคอลัมน์ป้าย band */
+.band-del {
+  position: absolute; top: 4px; right: 4px; z-index: 3;
+  width: 20px; height: 20px; padding: 0; border: 1px solid #f3c6c1;
+  display: grid; place-items: center; border-radius: 6px;
+  background: #fff; color: var(--danger); font-size: 14px; line-height: 1; font-weight: 700; cursor: pointer;
+}
+.band-del:hover { background: var(--danger-soft); border-color: var(--danger); }
+.band-add-slot { position: relative; margin: 10px 0 0; padding: 0 8px; }
+.band-add-btn { width: 100%; height: 36px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); color: var(--accent); font-weight: 700; font-size: 13px; }
+.band-add-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.band-add-menu { position: absolute; left: 8px; right: 8px; top: 40px; z-index: 10; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(16,24,40,0.16); padding: 4px; }
+.band-add-menu button { text-align: left; padding: 7px 10px; border: 0; background: none; border-radius: 4px; font-size: 13px; }
+.band-add-menu button:hover { background: var(--accent-soft); }
+
+/* ช่องติ๊ก */
+.check-glyph { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.el.el-checkbox { border: 0; background: transparent; overflow: visible; }
+.el.el-checkbox.is-selected { box-shadow: none; outline: 1.5px solid var(--accent); outline-offset: 2px; }
+
+/* ============ UI refresh: ใช้งานง่ายขึ้นและดูสบายตา ============
+   ทับกฎเดิมด้านบน (อยู่ท้ายไฟล์ จึงมีผลก่อนเสมอ) */
+:root {
+  --bg: #eef2f7;
+  --accent: #3d5afe;
+  --accent-strong: #2f48d6;
+  --accent-soft: #eef1ff;
+  --line: #e2e7ef;
+  --ink-soft: #3b4456;
+  --radius: 9px;
+  --shadow-pop: 0 14px 36px rgba(15, 23, 42, 0.16);
+}
+.app { grid-template-rows: 52px minmax(0, 1fr); }
+ .chip { border-radius: 8px; }
+
+/* กล่องเครื่องมือ (ซ้าย) */
+.section { padding: 14px; }
+.section h3 { margin-bottom: 10px; color: #7b8496; }
+.band-row-btn { border-radius: 8px; padding: 7px 9px; }
+.band-row-btn.is-active { background: var(--accent-soft); color: var(--accent-strong); }
+.layers { border-left-color: #e3e8f0; margin-left: 12px; }
+
+/* แถบมุมมอง (ออกแบบ / พรีวิว) */
+
+/* คำแนะนำสั้นๆ ด้านบนกระดาษ (ซ่อนได้ ค่าจำไว้ในเครื่องนี้) */
+
+/* พื้นที่กระดาษ */
+.stage { position: relative; }
+.design-scroll { padding: 26px 32px 56px; }
+.design-sheet { border-radius: 14px; }
+
+/* แถบจัดวางเมื่อเลือกหลายรายการ (ลอยเหนือกระดาษ) */
+
+/* ข้อความแจ้งเมื่อเลือกหลายรายการ (แผงคุณสมบัติ) */
+
+/* แผงคุณสมบัติ (ขวา) */
+.tabs { background: #f6f8fb; padding: 8px; gap: 4px; }
+.tabs button { height: 30px; border-radius: 7px; }
+.tabs button.is-on { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12); }
+ .cols input { height: 30px; border-radius: 7px; border-color: #d3d9e3; }
+ .select { border-radius: 7px; }
+
+/* แถบสถานะด้านล่าง */
+/* แถบมุมมองต้องไม่ตัดป๊อปอัปการแสดงผล */
+
+/* ==========================================================================
+   รอบ: ลำดับซ้อน (z-order) · เส้นขึ้นหน้าใหม่ · sidebar ซ้าย–ขวา · หน้า preview
+   ========================================================================== */
+
+/* sidebar: กว้างขึ้นให้อ่านภาษาไทยสบาย และแบ่งหมวดชัดขึ้น */
+.app { grid-template-columns: 244px minmax(0, 1fr) 344px; }
+.section { padding: 14px; }
+.section h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.band-row-btn { border-radius: var(--radius-sm); padding: 7px 9px; }
+
+/* รายการชั้น: บนสุดอยู่บน (ตรงกับการทับบนกระดาษ) */
+.layers { margin: 4px 0 8px 8px; padding: 2px 0 2px 8px; border-left: 2px solid var(--line); }
+
+/* ปุ่มลำดับซ้อน: ใน Inspector แสดงเป็นตาราง 2×2 มีข้อความ, ในแถบเลือกหลายรายการแสดงเป็นไอคอน */
+.z-order { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.z-order.is-compact { display: flex; gap: 1px; }
+
+/* เส้นขึ้นหน้าใหม่บนกระดาษออกแบบ: เส้นประสีชมพูพร้อมป้ายบอกเลขหน้า */
+.page-cut {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 20; pointer-events: none;
+  border-top: 2px dashed #e0457b;
+}
+.page-cut span {
+  position: absolute; right: 8px; top: 4px; padding: 1px 8px; border-radius: 999px;
+  background: #e0457b; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 1.5; white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+
+/* พรีวิว: แต่ละหน้าเป็นการ์ดแยกกัน มีเส้นแบ่ง "ขึ้นหน้าใหม่" ระหว่างหน้า */
+.preview-pages { gap: 44px; padding: 28px 24px 64px; }
+.page-box { flex: none; border-radius: 4px; box-shadow: 0 1px 2px rgba(24, 24, 27, 0.08), 0 12px 32px -8px rgba(24, 24, 27, 0.22); }
+.page-box + .page-box::before {
+  content: "ขึ้นหน้าใหม่"; position: absolute; top: -32px; left: 50%; transform: translateX(-50%);
+  padding: 0 10px; background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.page-box + .page-box::after {
+  content: ""; position: absolute; top: -24px; left: 0; right: 0; border-top: 1px dashed var(--line-strong);
+}
+.page-no { bottom: -22px; font-weight: 600; }
+
+/* ==========================================================================
+   ธีมขาวมาตรฐาน — ใช้งานง่าย · โครงสร้าง report designer ทั่วไป
+   ========================================================================== */
+.theme-light {
+  --bg: #f0f2f5;
+  --panel: #ffffff;
+  --sunken: #f6f7f9;
+  --line: #e4e7ec;
+  --line-strong: #d0d5dd;
+  --text: #101828;
+  --muted: #667085;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-soft: #eff4ff;
+  color-scheme: light;
+}
+
+.app.theme-light {
+  grid-template-columns: 268px minmax(0, 1fr) 340px;
+  grid-template-areas: "top top top" "tool work panel";
+}
+
+.theme-light .band-row-btn { align-items: flex-start; gap: 8px; }
+.theme-light .band-row-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.theme-light .band-row-name { font-weight: 700; font-size: 13px; line-height: 1.2; }
+.theme-light .band-row-std { font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+
+.theme-light .workspace { background: var(--bg); }
+.theme-light .design-scroll {
+  background: radial-gradient(ellipse 120% 80% at 50% 0%, #fafbfc 0%, var(--bg) 55%);
+}
+
+/* แผงตรวจการออกแบบ (ด้านล่าง workspace) */
+
+/* ---------- กระดาษออกแบบ (layout มาตรฐาน report designer) ---------- */
+.design-sheet { padding: 12px 14px 16px; }
+.sheet-columns { display: flex; align-items: flex-start; gap: 0; }
+.sheet-main { flex: 1; min-width: 0; }
+.ruler-col { flex: none; display: flex; flex-direction: column; }
+.ruler-corner {
+  flex: none; border-right: 1px solid #d4a017; border-bottom: 1px solid #d4a017;
+  background: linear-gradient(135deg, #fffbeb 50%, #fef3c7 50%);
+}
+.hruler-row { display: flex; align-items: flex-end; box-sizing: border-box; }
+.margin-ruler { flex: none; background: #f8fafc; border-bottom: 1px solid #e2c96a; }
+.hruler {
+  flex: none;
+  background: linear-gradient(180deg, #fffbeb, #fef3c7);
+  border-bottom: 1px solid #d4a017;
+  color: #78350f;
+}
+.htick { background: #ca8a04; }
+.htick.major { background: #a16207; }
+
+.vruler {
+  position: relative; flex: none;
+  background: linear-gradient(90deg, #fffbeb, #fef3c7);
+  border-right: 1px solid #d4a017;
+  font-family: var(--mono); font-size: 9px; color: #78350f;
+}
+.vtick { position: absolute; left: 0; width: 100%; height: 0; border-top: 1px solid #ca8a04; pointer-events: none; }
+.vtick.major { border-top-color: #a16207; }
+.vtick em { position: absolute; left: 2px; top: 2px; font-style: normal; font-size: 9px; }
+
+.page-surface {
+  position: relative; background: #fff;
+  border: 1px solid #cbd5e1;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.8);
+}
+.page-boundary {
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none; z-index: 1;
+  border-bottom: 2px dashed #94a3b8;
+  background: linear-gradient(to bottom, transparent 96%, rgb(148 163 184 / 0.06));
+}
+
+.band-row {
+  border-bottom: 1px solid #e2e8f0;
+  min-height: 0;
+  align-items: stretch;
+}
+.band-row:last-child { border-bottom: 0; }
+.band-tag {
+  flex: 1;
+  height: 100%; min-height: 0; border-radius: 0;
+  border-left: 4px solid var(--band-accent, #64748b);
+  border-right: 1px solid var(--line);
+  border-top: 0; border-bottom: 0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+  padding: 6px 8px;
+}
+.band-tag-std {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--band-accent, var(--accent)); text-transform: uppercase; line-height: 1.2;
+}
+.band-row.is-active .band-tag {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--band-accent, var(--accent)) 40%, transparent);
+}
+.band-area.band-frame {
+  border-radius: 0; border-left: 0; border-right: 0; border-top: 0; border-bottom: 0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+  background-size: var(--cell, 10px) var(--cell, 10px);
+}
+.band-area.hide-grid {
+  background-image: none;
+  background-color: #fff;
+}
+.band-row.is-active .band-area.band-frame {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--frame-accent, var(--accent)) 40%, transparent);
+}
+.band-row + .band-row .band-tag,
+.band-row + .band-row .band-area.band-frame { border-top: 1px solid var(--line); }
+
+.design-scroll.is-dragging { cursor: grabbing; }
+.design-scroll.is-dragging .el.is-drag-live {
+  will-change: transform;
+  z-index: 40;
+  transition: none;
+  pointer-events: none;
+}
+.design-sheet.is-dragging .band-area { pointer-events: auto; }
+
+.theme-light .design-sheet {
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 14px 40px rgb(16 24 40 / 0.1);
+}
+
+/* ==========================================================================
+   layout-report-pro — โครงใกล้ DevExpress / Figma report designer
+   ========================================================================== */
+.app.layout-report-pro {
+  grid-template-columns: 52px minmax(0, 1fr) 368px;
+  grid-template-areas: "top top top" "rail work panel";
+}
+
+.layout-report-pro .panel { padding: 0; }
+
+.layout-report-pro .band-tag {
+  border-left-width: 5px;
+  background: #f8fafc;
+}
+.layout-report-pro .band-tag-std {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.layout-report-pro .band-row.is-active .band-tag {
+  background: color-mix(in srgb, var(--band-accent, var(--accent)) 12%, #fff);
+}
+
+/* ==========================================================================
+   Shell แบบ shadcn/ui + Tailwind — แถบบน, กล่องเครื่องมือ, แถบกระดาษ, แถบสถานะ เขียนด้วย utility ใน JSX
+   ส่วนนี้เหลือเฉพาะสิ่งที่ utility ทำไม่ได้: โครง grid, แก้ข้อความบนกระดาษ, แอนิเมชันเมนู
+   ========================================================================== */
+.app.layout-report-pro {
+  grid-template-columns: 136px minmax(0, 1fr) 340px;
+}
+@media (max-width: 1360px) {
+  .app.layout-report-pro { grid-template-columns: 120px minmax(0, 1fr) 320px; }
+}
+
+/* กรอบแบบ Figma frame: ป้ายชื่อกรอบมุมซ้ายบน และไฮไลต์ตอนลากของเข้ากรอบ */
+.el.is-frame { overflow: visible; }
+.el.is-frame .el-tag { background: var(--text); }
+.el.is-frame-target { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: inset 0 0 0 9999px rgb(61 90 254 / 0.06); }
+.el.is-frame-target .el-tag { display: block; background: var(--accent); }
+
+/* แก้ข้อความบนกระดาษ (ดับเบิลคลิก) — กล่องขยายตามข้อความ ไม่ถูกตัดตามขนาด element */
+.el.is-editing { overflow: visible; z-index: 6; cursor: text; border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px rgb(61 90 254 / 0.18); }
+.el.is-editing .el-tag, .el.is-editing .el-handle { display: none; }
+.el-editor {
+  position: absolute; left: -1px; top: -1px; width: calc(100% + 2px);
+  margin: 0; padding: 1px 3px; resize: none; overflow: hidden;
+  border: 1.5px solid var(--accent); border-radius: 2px; outline: none;
+  background: #fff; box-shadow: 0 6px 18px rgb(15 23 42 / 0.16);
+  font-family: "Sarabun", sans-serif; line-height: 1.25; white-space: pre-wrap; user-select: text;
+}
+
+/* เมนู (ContextMenu / DropdownMenu) */
+@keyframes menu-pop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.menu-pop { animation: menu-pop 0.09s ease-out; transform-origin: top left; }

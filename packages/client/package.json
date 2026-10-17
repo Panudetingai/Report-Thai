@@ -1,5 +1,20 @@
 {
   "name": "@thaireport/client",
   "version": "0.1.0",
-  "main": "src/index.js"
+  "description": "ThaiReport ใน browser — สร้าง PDF ภาษาไทยจาก template JSON ด้วย WASM ไม่ต้องมีเซิร์ฟเวอร์",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": ["src", "wasm/tr_wasm.js", "wasm/tr_wasm.d.ts", "wasm/tr_wasm_bg.wasm"],
+  "sideEffects": false,
+  "scripts": {
+    "prepack": "node scripts/check-wasm.mjs"
+  },
+  "license": "MIT"
 }

@@ -10,6 +10,14 @@ path = "src/main.rs"
 
 [dependencies]
 tr-core = { path = "../tr-core" }
+tr-pdf = { path = "../tr-pdf" }
+tr-text = { path = "../tr-text" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

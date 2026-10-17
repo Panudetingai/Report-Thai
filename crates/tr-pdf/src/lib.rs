@@ -123,6 +123,7 @@ enum Op {
         content: String,
         bold: bool,
         family: String,
+        color: Option<(f32, f32, f32)>,
     },
     Rule {
         x1: f32,
@@ -325,6 +326,7 @@ fn emit_element(
                     content: line.clone(),
                     bold: t.bold,
                     family: t.font.clone(),
+                    color: t.color.as_deref().and_then(tr_core::parse_hex_color),
                 });
             }
             let used_h = if t.overflow == Overflow::Grow {
@@ -371,6 +373,24 @@ fn emit_element(
                 }],
                 mm_to_pt(r.h),
             ))
+        }
+        Element::Checkbox(c) => {
+            let x = ox + mm_to_pt(c.x);
+            let y = oy + mm_to_pt(c.y);
+            let w = mm_to_pt(c.w);
+            let h = mm_to_pt(c.h);
+            let stroke = c.stroke.as_deref().and_then(tr_core::parse_hex_color).or(Some((0.0, 0.0, 0.0)));
+            let mut ops = vec![Op::Box { x, y, w, h, fill: None, stroke, width: c.width, ellipse: false }];
+            let value = tr_core::bind_text(&c.checked, data, row, page_no, pages);
+            if tr_core::is_truthy(&value) {
+                // เครื่องหมายถูกวาดด้วยเส้น 2 ช่วง (ไม่พึ่งฟอนต์)
+                let pt = |fx: f32, fy: f32| (x + w * fx, y + h * fy);
+                let (a, b, cc) = (pt(0.22, 0.52), pt(0.42, 0.74), pt(0.80, 0.26));
+                let mw = (c.width * 1.8).max(0.8);
+                ops.push(Op::Rule { x1: a.0, y1: a.1, x2: b.0, y2: b.1, width: mw, dash: None });
+                ops.push(Op::Rule { x1: b.0, y1: b.1, x2: cc.0, y2: cc.1, width: mw, dash: None });
+            }
+            Ok((ops, mm_to_pt(c.h)))
         }
         Element::Ellipse(e) => {
             let fill = e.fill.as_deref().and_then(tr_core::parse_hex_color);
@@ -465,7 +485,160 @@ fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("ถอด base64 ภาพไม่สำเร็จ: {e}"))
 }
 
+/// สไตล์ที่ใช้จริงของเซลล์ (หลังทับด้วย cell_styles แล้ว)
+struct CellStyleResolved {
+    font: String,
+    size: f32,
+    bold: bool,
+    color: Option<(f32, f32, f32)>,
+    fill: Option<(f32, f32, f32)>,
+}
+
+fn resolve_cell(t: &tr_core::TableEl, col: &tr_core::TableColumn, ci: usize, ri: usize) -> CellStyleResolved {
+    let mut st = CellStyleResolved {
+        font: col.font.clone().unwrap_or_else(|| t.font.clone()),
+        size: col.size.unwrap_or(t.size),
+        bold: col.bold,
+        color: col.color.as_deref().and_then(tr_core::parse_hex_color),
+        fill: col.fill.as_deref().and_then(tr_core::parse_hex_color),
+    };
+    for cs in t.cell_styles.iter().filter(|cs| cs.col as usize == ci + 1 && cs.row.map_or(true, |r| r as usize == ri + 1)) {
+        if let Some(f) = &cs.font {
+            st.font = f.clone();
+        }
+        if let Some(sz) = cs.size {
+            st.size = sz;
+        }
+        if let Some(b) = cs.bold {
+            st.bold = b;
+        }
+        if let Some(c) = cs.color.as_deref().and_then(tr_core::parse_hex_color) {
+            st.color = Some(c);
+        }
+        if let Some(c) = cs.fill.as_deref().and_then(tr_core::parse_hex_color) {
+            st.fill = Some(c);
+        }
+    }
+    st
+}
+
+fn align_dx(align: Align, col_w: f32, text_w: f32, pad: f32) -> f32 {
+    match align {
+        Align::Left => pad,
+        Align::Center => ((col_w - text_w) / 2.0).max(pad),
+        Align::Right => (col_w - text_w - pad).max(pad),
+    }
+}
+
+/// หัวตาราง ณ (x0, y) — คืน ops; ความสูงหัวคือ head_height(t)
+fn build_head(t: &tr_core::TableEl, x0: f32, y: f32, fonts: &HashMap<String, Vec<u8>>) -> Result<Vec<Op>, String> {
+    let rgb = |c: &Option<String>, dflt: (f32, f32, f32)| c.as_deref().and_then(tr_core::parse_hex_color).unwrap_or(dflt);
+    let header_fill = rgb(&t.header_fill, (0.94, 0.94, 0.94));
+    let border = rgb(&t.border_color, (0.0, 0.0, 0.0));
+    let header_color = t.header_color.as_deref().and_then(tr_core::parse_hex_color);
+    let pad = 4.5;
+    let h = head_height(t);
+    let head_font = pick_font_bytes(&t.font, t.header_bold, fonts)?;
+    let mut ops = Vec::new();
+    let mut x = x0;
+    for col in &t.columns {
+        let cw = mm_to_pt(col.width);
+        let missing = tr_text::missing_glyphs(head_font, &col.header);
+        if !missing.is_empty() {
+            let sample: String = missing.iter().take(8).collect();
+            return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ header: {sample:?}", t.font));
+        }
+        ops.push(Op::Box { x, y, w: cw, h, fill: Some(header_fill), stroke: Some(border), width: 0.5, ellipse: false });
+        let lw = tr_text::measure_thai_width(&col.header, head_font, t.size);
+        ops.push(Op::Text {
+            x: x + align_dx(col.align, cw, lw, pad),
+            y: y + pad + t.size,
+            size: t.size,
+            content: col.header.clone(),
+            bold: t.header_bold,
+            family: t.font.clone(),
+            color: header_color,
+        });
+        x += cw;
+    }
+    Ok(ops)
+}
+
+fn head_height(t: &tr_core::TableEl) -> f32 {
+    t.size * 1.6 + 4.5 * 2.0
+}
+
+/// แถวข้อมูล ณ (x0, y) — คืน (ops, ความสูงแถว) โดยใช้สไตล์จริงของแต่ละเซลล์ (รวม cell_styles)
+#[allow(clippy::too_many_arguments)]
+fn build_row(
+    t: &tr_core::TableEl,
+    row: &serde_json::Value,
+    ri: usize,
+    data: &serde_json::Value,
+    page_no: usize,
+    pages: usize,
+    x0: f32,
+    y: f32,
+    fonts: &HashMap<String, Vec<u8>>,
+    extra_words: &[&str],
+) -> Result<(Vec<Op>, f32), String> {
+    let pad = 4.5;
+    let zebra_fill = t.zebra_fill.as_deref().and_then(tr_core::parse_hex_color).unwrap_or((0.97, 0.97, 0.97));
+    let border = t.border_color.as_deref().and_then(tr_core::parse_hex_color).unwrap_or((0.0, 0.0, 0.0));
+    let styles: Vec<CellStyleResolved> = (0..t.columns.len()).map(|i| resolve_cell(t, &t.columns[i], i, ri)).collect();
+
+    let mut cells: Vec<(Vec<String>, f32)> = Vec::new();
+    let mut text_h = 0.0f32;
+    for (i, col) in t.columns.iter().enumerate() {
+        let st = &styles[i];
+        let fb = pick_font_bytes(&st.font, st.bold, fonts)?;
+        let step = st.size * 1.6;
+        let raw = tr_core::bind_text(&col.field, data, Some(row), page_no, pages);
+        let missing = tr_text::missing_glyphs(fb, &raw);
+        if !missing.is_empty() {
+            let sample: String = missing.iter().take(8).collect();
+            return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ: {sample:?}", st.font));
+        }
+        let cw = mm_to_pt(col.width) - pad * 2.0;
+        let wrapped = tr_text::wrap_thai(&raw, fb, st.size, cw.max(10.0), extra_words);
+        let lines = if wrapped.is_empty() { vec![String::new()] } else { wrapped };
+        text_h = text_h.max(lines.len() as f32 * step);
+        cells.push((lines, step));
+    }
+    let h = text_h + pad * 2.0;
+
+    let mut ops = Vec::new();
+    let mut x = x0;
+    for (i, col) in t.columns.iter().enumerate() {
+        let st = &styles[i];
+        let cw = mm_to_pt(col.width);
+        let fill = match (st.fill, ri % 2 == 1) {
+            (Some(c), _) => Some(c),
+            (None, true) => Some(zebra_fill),
+            _ => None,
+        };
+        ops.push(Op::Box { x, y, w: cw, h, fill, stroke: Some(border), width: 0.5, ellipse: false });
+        let fb = pick_font_bytes(&st.font, st.bold, fonts)?;
+        let (lines, step) = &cells[i];
+        for (li, line) in lines.iter().enumerate() {
+            let lw = tr_text::measure_thai_width(line, fb, st.size);
+            ops.push(Op::Text {
+                x: x + align_dx(col.align, cw, lw, pad),
+                y: y + pad + st.size + li as f32 * step,
+                size: st.size,
+                content: line.clone(),
+                bold: st.bold,
+                family: st.font.clone(),
+                color: st.color,
+            });
+        }
+        x += cw;
+    }
+    Ok((ops, h))
+}
+
 /// วาดตาราง — คืน ops + ความสูงที่ใช้ (pt)
+/// รองรับฟอนต์/ขนาด/ตัวหนา/สี/สีพื้นต่อคอลัมน์ และสีหัว/สีสลับแถว/สีเส้นของตาราง
 #[allow(clippy::too_many_arguments)]
 fn emit_table(
     t: &tr_core::TableEl,
@@ -478,102 +651,13 @@ fn emit_table(
     fonts: &HashMap<String, Vec<u8>>,
     extra_words: &[&str],
 ) -> Result<(Vec<Op>, f32), String> {
-    let font_bytes = pick_font_bytes(&t.font, false, fonts)?;
     let bx = ox + mm_to_pt(t.x);
     let by = oy + mm_to_pt(t.y);
-    let col_w: Vec<f32> = t.columns.iter().map(|c| mm_to_pt(c.width)).collect();
-    let size = t.size;
-    let step = size * 1.6;
-    let pad = 4.5;
-    let row_h = step + pad * 2.0;
-
-    let mut ops = Vec::new();
-    let mut y = by;
-    // header
-    let mut x = bx;
-    for (i, col) in t.columns.iter().enumerate() {
-        let missing = tr_text::missing_glyphs(font_bytes, &col.header);
-        if !missing.is_empty() {
-            let sample: String = missing.iter().take(8).collect();
-            return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ header: {sample:?}", t.font));
-        }
-        ops.push(Op::Box {
-            x,
-            y,
-            w: col_w[i],
-            h: row_h,
-            fill: Some((0.94, 0.94, 0.94)),
-            stroke: Some((0.0, 0.0, 0.0)),
-            width: 0.5,
-            ellipse: false,
-        });
-        let lw = tr_text::measure_thai_width(&col.header, font_bytes, size);
-        let dx = match col.align {
-            Align::Left => pad,
-            Align::Center => ((col_w[i] - lw) / 2.0).max(pad),
-            Align::Right => (col_w[i] - lw - pad).max(pad),
-        };
-        ops.push(Op::Text {
-            x: x + dx,
-            y: y + pad + size,
-            size,
-            content: col.header.clone(),
-            bold: true,
-            family: t.font.clone(),
-        });
-        x += col_w[i];
-    }
-    y += row_h;
-    // rows
+    let mut ops = build_head(t, bx, by, fonts)?;
+    let mut y = by + head_height(t);
     for (ri, row) in rows.iter().enumerate() {
-        // วัดความสูงแถว (wrap หลายบรรทัด)
-        let mut lines_per_col: Vec<Vec<String>> = Vec::new();
-        let mut max_lines = 1;
-        for col in &t.columns {
-            let raw = tr_core::bind_text(&col.field, data, Some(row), page_no, pages);
-            let missing = tr_text::missing_glyphs(font_bytes, &raw);
-            if !missing.is_empty() {
-                let sample: String = missing.iter().take(8).collect();
-                return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ: {sample:?}", t.font));
-            }
-            // หัก padding 2 ข้าง
-            let cw = col_w[lines_per_col.len()] - pad * 2.0;
-            let wrapped = tr_text::wrap_thai(&raw, font_bytes, size, cw.max(10.0), extra_words);
-            max_lines = max_lines.max(wrapped.len().max(1));
-            lines_per_col.push(if wrapped.is_empty() { vec![String::new()] } else { wrapped });
-        }
-        let h = max_lines as f32 * step + pad * 2.0;
-        let mut x = bx;
-        for (i, col) in t.columns.iter().enumerate() {
-            let fill = if ri % 2 == 1 { Some((0.97, 0.97, 0.97)) } else { None };
-            ops.push(Op::Box {
-                x,
-                y,
-                w: col_w[i],
-                h,
-                fill,
-                stroke: Some((0.0, 0.0, 0.0)),
-                width: 0.5,
-                ellipse: false,
-            });
-            for (li, line) in lines_per_col[i].iter().enumerate() {
-                let lw = tr_text::measure_thai_width(line, font_bytes, size);
-                let dx = match col.align {
-                    Align::Left => pad,
-                    Align::Center => ((col_w[i] - lw) / 2.0).max(pad),
-                    Align::Right => (col_w[i] - lw - pad).max(pad),
-                };
-                ops.push(Op::Text {
-                    x: x + dx,
-                    y: y + pad + size + li as f32 * step,
-                    size,
-                    content: line.clone(),
-                    bold: false,
-                    family: t.font.clone(),
-                });
-            }
-            x += col_w[i];
-        }
+        let (o, h) = build_row(t, row, ri, data, page_no, pages, bx, y, fonts, extra_words)?;
+        ops.extend(o);
         y += h;
     }
     Ok((ops, y - by))
@@ -588,6 +672,65 @@ pub fn render_template(
     fonts: &HashMap<String, Vec<u8>>,
     base_dir: Option<&std::path::Path>,
 ) -> Result<Vec<u8>, String> {
+    render_template_counted(template, data, fonts, base_dir).map(|(pdf, _)| pdf)
+}
+
+/// เหมือน `render_template` แต่คืนจำนวนหน้าจริงจากการจัดหน้าด้วย
+/// (ไม่ต้องเดาจาก bytes ของ PDF — object ใน PDF ถูกบีบอัด นับ `/Type /Page` ไม่ได้)
+pub fn render_template_counted(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<(Vec<u8>, usize), String> {
+    let pages = paginate(template, data, fonts, base_dir)?;
+    let total = pages.len();
+    let (pw, ph) = template.page.size_pt();
+    let pdf = draw_pages(template, &pages, fonts, pw, ph)?;
+    Ok((pdf, total))
+}
+
+/// ข้อความที่จะพิมพ์ในแต่ละหน้า (ตามลำดับที่วาด) — ใช้ตรวจผลการจัดหน้าในเทสต์
+pub fn page_texts(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<String>>, String> {
+    Ok(page_text_positions(template, data, fonts, base_dir)?
+        .into_iter()
+        .map(|p| p.into_iter().map(|(_, t)| t).collect())
+        .collect())
+}
+
+/// เหมือน `page_texts` แต่คืนตำแหน่ง y (pt จากขอบบน) คู่กับข้อความ — ใช้ตรวจลำดับ band บนกระดาษ
+pub fn page_text_positions(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<(f32, String)>>, String> {
+    let pages = paginate(template, data, fonts, base_dir)?;
+    Ok(pages
+        .iter()
+        .map(|ops| {
+            ops.iter()
+                .filter_map(|op| match op {
+                    Op::Text { y, content, .. } => Some((*y, content.clone())),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect())
+}
+
+/// จัดหน้า: คืน ops ของแต่ละหน้า (ผ่านการนับหน้าสองรอบเพื่อให้ `pages` ในฟุตเตอร์ถูกต้อง)
+fn paginate(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<Op>>, String> {
     template.validate()?;
     let extra: Vec<&str> = template.user_dict.iter().map(|s| s.as_str()).collect();
 
@@ -638,13 +781,22 @@ pub fn render_template(
         pw, ph, cx, cy, cw, ch, header_h, footer_h, 1,
     )?;
     let total = layout_pages.len().max(1);
-    let pages = layout_all(
+    layout_all(
         template, data, fonts, &extra, base_dir, &detail_rows,
         title, pheader, cheader, detail, summary, pfooter, gheader, gfooter,
         pw, ph, cx, cy, cw, ch, header_h, footer_h, total,
-    )?;
+    )
+}
 
-    // --- pass 2: วาดลง krilla ---
+/// วาด ops ของทุกหน้าลง PDF (krilla)
+fn draw_pages(
+    template: &Template,
+    pages: &[Vec<Op>],
+    fonts: &HashMap<String, Vec<u8>>,
+    pw: f32,
+    ph: f32,
+) -> Result<Vec<u8>, String> {
+    let _ = template;
     let mut document = Document::new();
     let mut meta = Metadata::new();
     meta = meta.creator("ThaiReport".to_string());
@@ -658,16 +810,20 @@ pub fn render_template(
     let noto_bytes = fonts.get("NotoSansThai").cloned();
     let k_reg = Font::new(reg_bytes.into(), 0).ok_or("โหลดฟอนต์ Regular ไม่สำเร็จ")?;
     let k_bold = Font::new(bold_bytes.into(), 0).ok_or("โหลดฟอนต์ Bold ไม่สำเร็จ")?;
+    // Sarabun-Light ถ้าไม่มีไฟล์ จะใช้ Regular แทน (ไม่ล้ม)
+    let k_light = fonts
+        .get("Sarabun-Light")
+        .and_then(|b| Font::new(b.clone().into(), 0))
+        .unwrap_or_else(|| k_reg.clone());
     let k_noto = noto_bytes.and_then(|b| Font::new(b.into(), 0));
 
-    for (pi, ops) in pages.iter().enumerate() {
-        let _ = pi;
+    for ops in pages.iter() {
         let mut page = document
             .start_page_with(PageSettings::from_wh(pw, ph).ok_or("ขนาดหน้าไม่ถูกต้อง")?);
         {
             let mut surface = page.surface();
             for op in ops {
-                draw_op(&mut surface, op, &k_reg, &k_bold, k_noto.clone())?;
+                draw_op(&mut surface, op, &k_reg, &k_bold, &k_light, k_noto.clone())?;
             }
             surface.finish();
         }
@@ -739,82 +895,58 @@ fn layout_all(
         Ok(max_h.max(mm_to_pt(b.height)))
     };
 
-    // เปิดหน้าแรก: header
+    // จัดกลุ่มเมื่อหัวกลุ่มมี groupBy (แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน) — หลายหัวกลุ่ม = กลุ่มซ้อน
+    let levels = template.group_levels()?;
+    let grouped = !levels.is_empty();
+
+    // เปิดหน้าแรก: ลำดับเดียวกับหน้าออกแบบ — หัวกระดาษ → หัวเรื่อง (เฉพาะหน้าแรก) → หัวคอลัมน์
     {
         let pg = cur + 1;
         let ops = &mut pages[cur];
+        let ph_h = pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
         if let Some(b) = pheader {
             emit_band(Some(b), ops, cy, None, pg)?;
         }
+        let title_h = match title {
+            Some(b) => emit_band(Some(b), ops, cy + ph_h, None, pg)?,
+            None => 0.0,
+        };
         if let Some(b) = cheader {
-            let oy = cy + pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
-            emit_band(Some(b), ops, oy, None, pg)?;
+            emit_band(Some(b), ops, cy + ph_h + title_h, None, pg)?;
         }
-        // title เฉพาะหน้าแรก
-        if let Some(b) = title {
-            let h = emit_band(Some(b), ops, y, None, pg)?;
-            y += h;
-        }
-        if let Some(b) = gheader {
-            let h = emit_band(Some(b), ops, y, None, pg)?;
+        y += title_h;
+        // จัดกลุ่ม: หัวกลุ่มถูกวางทีละกลุ่มในเนื้อเอกสาร (ดู flow_grouped) — ที่นี่วาดเฉพาะกรณีไม่จัดกลุ่ม
+        if let Some(b) = gheader.filter(|_| !grouped).map(|b| substitute_band(b, detail_rows, None)) {
+            let h = emit_band(Some(&b), ops, y, None, pg)?;
             y += h;
         }
     }
 
-    // detail rows
-    if let Some(d) = detail {
-        let dh = mm_to_pt(d.height);
-        // table ใน detail ที่ข้ามหน้าได้: จัดการพิเศษ — แยกเป็น header + แถว
-        let has_table = d.elements.iter().any(|e| matches!(e, Element::Table(_)));
-        if has_table && d.elements.len() == 1 {
-            if let Element::Table(t) = &d.elements[0] {
-                y = layout_table_paged(
-                    t, data, detail_rows, &mut pages, &mut cur, y, top, cy, cx,
-                    header_h, footer_h, template, fonts, extra, base_dir,
-                    pheader, cheader, pfooter, total_pages,
-                )?;
-            }
-        } else {
-            for row in detail_rows {
-                // ถ้าไม่พอ → ขึ้นหน้าใหม่ + header ซ้ำ
-                if y + dh > page_bottom(template, cy, footer_h) + 0.01 {
-                    // footer หน้าปัจจุบัน
-                    let pg = cur + 1;
-                    if let Some(b) = pfooter {
-                        let oy = page_bottom(template, cy, footer_h);
-                        let ops = &mut pages[cur];
-                        emit_band(Some(b), ops, oy, None, pg)?;
-                    }
-                    new_page(&mut pages, &mut cur, &mut y);
-                    let pg = cur + 1;
-                    let ops = &mut pages[cur];
-                    if let Some(b) = pheader {
-                        emit_band(Some(b), ops, cy, None, pg)?;
-                    }
-                    if let Some(b) = cheader {
-                        let oy = cy + pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
-                        emit_band(Some(b), ops, oy, None, pg)?;
-                    }
+    // เนื้อเอกสาร: detail และ section ทุกชุดตามลำดับใน template (รายการวนตามข้อมูล / เนื้อหาวาดครั้งเดียว)
+    let _ = detail;
+    {
+        let fc = FlowCtx {
+            template, data, fonts, extra, base_dir, pheader, cheader, pfooter,
+            cx, cy, top, header_h, footer_h, total_pages,
+        };
+        for b in template.bands.iter().filter(|b| b.is_flow()) {
+            if b.band_type == BandType::Detail && grouped {
+                if b.elements.iter().any(|e| matches!(e, Element::Table(_))) {
+                    return Err("band รายการที่จัดกลุ่มยังไม่รองรับตาราง — ใช้ band รายการที่เป็นข้อความ/กรอบแทน".to_string());
                 }
-                let pg = cur + 1;
-                let ops = &mut pages[cur];
-                let mut row_h = dh;
-                for el in &d.elements {
-                    let (o, h) = emit_element(
-                        el, data, row.as_ref(), pg, total_pages, cx, y, fonts, extra, base_dir,
-                    )?;
-                    ops.extend(o);
-                    row_h = row_h.max(h.max(dh));
-                }
-                y += row_h;
+                flow_grouped(&fc, b, &levels, detail_rows, &mut pages, &mut cur, &mut y)?;
+                continue;
             }
+            let rows = if b.band_type == BandType::Detail { Some(detail_rows) } else { None };
+            flow_band(&fc, b, &mut pages, &mut cur, &mut y, rows)?;
         }
-        let _ = dh;
     }
 
     // group footer + summary (ถ้าไม่พอขึ้นหน้าใหม่)
     // หมายเหตุ: gap_before ของ band จะถูกข้ามเมื่ออยู่ต้นหน้าใหม่ (กันช่องว่างลอยหัวกระดาษ)
-    for band in [gfooter, summary] {
+    let gfooter_all = gfooter.filter(|_| !grouped).map(|b| substitute_band(b, detail_rows, None));
+    let summary_all = summary.map(|b| substitute_band(b, detail_rows, None));
+    for band in [gfooter_all.as_ref(), summary_all.as_ref()] {
         if let Some(b) = band {
             let bh = mm_to_pt(b.height);
             let gap = mm_to_pt(b.gap_before);
@@ -857,6 +989,198 @@ fn layout_all(
     Ok(pages)
 }
 
+/// บริบทสำหรับวาง band ที่ไหลในเนื้อเอกสาร (ใช้ร่วมกันทุก band)
+struct FlowCtx<'a> {
+    template: &'a Template,
+    data: &'a serde_json::Value,
+    fonts: &'a HashMap<String, Vec<u8>>,
+    extra: &'a [&'a str],
+    base_dir: Option<&'a std::path::Path>,
+    pheader: Option<&'a tr_core::Band>,
+    cheader: Option<&'a tr_core::Band>,
+    pfooter: Option<&'a tr_core::Band>,
+    cx: f32,
+    cy: f32,
+    top: f32,
+    header_h: f32,
+    footer_h: f32,
+    total_pages: usize,
+}
+
+impl FlowCtx<'_> {
+    fn bottom(&self) -> f32 {
+        page_bottom(self.template, self.cy, self.footer_h)
+    }
+
+    /// วาด element ทุกตัวของ band ที่ oy คืนความสูงที่ใช้
+    fn emit(&self, b: &tr_core::Band, ops: &mut Vec<Op>, oy: f32, row: Option<&serde_json::Value>, pg: usize) -> Result<f32, String> {
+        let bh = mm_to_pt(b.height);
+        let mut h_used = bh;
+        for el in &b.elements {
+            let (o, h) = emit_element(el, self.data, row, pg, self.total_pages, self.cx, oy, self.fonts, self.extra, self.base_dir)?;
+            ops.extend(o);
+            h_used = h_used.max(h);
+        }
+        Ok(h_used)
+    }
+
+    /// ปิดหน้าปัจจุบัน (ท้ายกระดาษ) แล้วเปิดหน้าใหม่ (หัวกระดาษ/หัวคอลัมน์)
+    fn page_break(&self, pages: &mut Vec<Vec<Op>>, cur: &mut usize, y: &mut f32) -> Result<(), String> {
+        if let Some(f) = self.pfooter {
+            let pg = *cur + 1;
+            let oy = self.bottom();
+            let mut ops = Vec::new();
+            self.emit(f, &mut ops, oy, None, pg)?;
+            pages[*cur].extend(ops);
+        }
+        *cur += 1;
+        pages.push(Vec::new());
+        *y = self.top;
+        let pg = *cur + 1;
+        let mut ops = Vec::new();
+        if let Some(h) = self.pheader {
+            self.emit(h, &mut ops, self.cy, None, pg)?;
+        }
+        if let Some(c) = self.cheader {
+            let oy = self.cy + self.pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
+            self.emit(c, &mut ops, oy, None, pg)?;
+        }
+        pages[*cur].extend(ops);
+        Ok(())
+    }
+}
+
+/// แถวของ data source (array) — ไม่มี/ไม่ใช่ array = ว่าง
+fn rows_for(data: &serde_json::Value, ds: Option<&str>) -> Vec<Option<serde_json::Value>> {
+    match ds.and_then(|d| tr_core::lookup(data, d)) {
+        Some(serde_json::Value::Array(a)) => a.into_iter().map(Some).collect(),
+        _ => vec![],
+    }
+}
+
+/// วาง band ที่ไหลในเนื้อเอกสาร 1 ชุด
+/// - มีตารางตัวเดียว → ตารางข้ามหน้าได้ (หัวซ้ำ)
+/// - แบบรายการ → วาด element ทุกตัวหนึ่งครั้งต่อหนึ่งแถวข้อมูล
+/// - แบบเนื้อหา → วาดครั้งเดียว
+fn flow_band(
+    fc: &FlowCtx,
+    b: &tr_core::Band,
+    pages: &mut Vec<Vec<Op>>,
+    cur: &mut usize,
+    y: &mut f32,
+    detail_rows: Option<&[Option<serde_json::Value>]>,
+) -> Result<(), String> {
+    // ระยะก่อน band (ไม่เว้นเมื่ออยู่ต้นหน้า)
+    if *y > fc.top + 0.01 {
+        *y += mm_to_pt(b.gap_before);
+    }
+    if b.elements.len() == 1 {
+        if let Element::Table(t) = &b.elements[0] {
+            let rows: Vec<Option<serde_json::Value>> = match detail_rows {
+                Some(r) => r.to_vec(),
+                None => rows_for(fc.data, t.data_source.as_deref().or(b.data_source.as_deref())),
+            };
+            *y = layout_table_paged(
+                t, fc.data, &rows, pages, cur, *y, fc.top, fc.cy, fc.cx, fc.header_h, fc.footer_h,
+                fc.template, fc.fonts, fc.extra, fc.base_dir, fc.pheader, fc.cheader, fc.pfooter, fc.total_pages,
+            )?;
+            return Ok(());
+        }
+    }
+    let rows: Vec<Option<serde_json::Value>> = if b.is_list() {
+        match detail_rows {
+            Some(r) => r.to_vec(),
+            None => rows_for(fc.data, b.data_source.as_deref()),
+        }
+    } else {
+        vec![None]
+    };
+    flow_rows(fc, b, &rows, pages, cur, y)
+}
+
+/// วาด band รายการทีละแถว (ขึ้นหน้าใหม่เมื่อไม่พอ)
+fn flow_rows(
+    fc: &FlowCtx,
+    b: &tr_core::Band,
+    rows: &[Option<serde_json::Value>],
+    pages: &mut Vec<Vec<Op>>,
+    cur: &mut usize,
+    y: &mut f32,
+) -> Result<(), String> {
+    let bh = mm_to_pt(b.height);
+    for row in rows {
+        // ไม่พอที่ → ขึ้นหน้าใหม่ (ถ้าอยู่ต้นหน้าแล้วยังไม่พอ ก็วางเลย กันวนไม่รู้จบ)
+        if *y + bh > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+            fc.page_break(pages, cur, y)?;
+        }
+        let pg = *cur + 1;
+        let mut ops = Vec::new();
+        let h = fc.emit(b, &mut ops, *y, row.as_ref(), pg)?;
+        pages[*cur].extend(ops);
+        *y += h;
+    }
+    Ok(())
+}
+
+/// band รายการที่จัดกลุ่ม: หัวกลุ่ม → (กลุ่มชั้นใน | แถวในกลุ่ม) → ท้ายกลุ่ม (รวมค่าเฉพาะในกลุ่ม)
+/// `levels` เรียงนอก → ใน; เรียกซ้ำทีละชั้น
+/// หัวกลุ่มจะไม่ถูกทิ้งไว้ท้ายหน้า: ถ้าไม่พอกับหัวกลุ่มชั้นในทั้งหมดและแถวแรก ขึ้นหน้าใหม่ก่อน
+fn flow_grouped(
+    fc: &FlowCtx,
+    detail: &tr_core::Band,
+    levels: &[tr_core::GroupLevel],
+    rows: &[Option<serde_json::Value>],
+    pages: &mut Vec<Vec<Op>>,
+    cur: &mut usize,
+    y: &mut f32,
+) -> Result<(), String> {
+    let Some((lv, inner)) = levels.split_first() else {
+        return flow_rows(fc, detail, rows, pages, cur, y);
+    };
+    let follow: f32 = inner.iter().map(|l| mm_to_pt(l.header.height)).sum::<f32>() + mm_to_pt(detail.height);
+    for (gval, grows) in tr_core::aggregate::split_groups(rows, lv.key) {
+        let n = grows.len();
+        let head = substitute_band(lv.header, &grows, Some((&gval, n)));
+        let gap = if *y > fc.top + 0.01 { mm_to_pt(head.gap_before) } else { 0.0 };
+        if *y + gap + mm_to_pt(head.height) + follow > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+            fc.page_break(pages, cur, y)?;
+        }
+        *y += if *y > fc.top + 0.01 { gap } else { 0.0 };
+        let mut ops = Vec::new();
+        let h = fc.emit(&head, &mut ops, *y, None, *cur + 1)?;
+        pages[*cur].extend(ops);
+        *y += h;
+
+        flow_grouped(fc, detail, inner, &grows, pages, cur, y)?;
+
+        if let Some(gf) = lv.footer {
+            let foot = substitute_band(gf, &grows, Some((&gval, n)));
+            let gap = if *y > fc.top + 0.01 { mm_to_pt(foot.gap_before) } else { 0.0 };
+            if *y + gap + mm_to_pt(foot.height) > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+                fc.page_break(pages, cur, y)?;
+            }
+            *y += if *y > fc.top + 0.01 { gap } else { 0.0 };
+            let mut ops = Vec::new();
+            let h = fc.emit(&foot, &mut ops, *y, None, *cur + 1)?;
+            pages[*cur].extend(ops);
+            *y += h;
+        }
+    }
+    Ok(())
+}
+
+/// สำเนาของ band ที่แทนค่ารวม (sum/count/…) และ group.* ด้วยค่าจริงของแถวที่ส่งเข้ามา
+/// ตัวจัดหน้าและตัวผูกค่าปกติไม่ต้องรู้เรื่องการรวมค่า
+fn substitute_band(b: &tr_core::Band, rows: &[Option<serde_json::Value>], group: Option<(&str, usize)>) -> tr_core::Band {
+    let mut out = b.clone();
+    for el in &mut out.elements {
+        if let Element::Text(t) = el {
+            t.text = tr_core::aggregate::bind_aggregates(&t.text, rows, group);
+        }
+    }
+    out
+}
+
 fn content_h(template: &Template, cy: f32, footer_h: f32) -> f32 {
     let (_, _ph) = template.page.size_pt();
     let (_, _, _, ch) = template.page.content_box_pt();
@@ -892,77 +1216,17 @@ fn layout_table_paged(
     pfooter: Option<&tr_core::Band>,
     total_pages: usize,
 ) -> Result<f32, String> {
-    let font_bytes = pick_font_bytes(&t.font, false, fonts)?;
-    let col_w: Vec<f32> = t.columns.iter().map(|c| mm_to_pt(c.width)).collect();
-    let size = t.size;
-    let step = size * 1.6;
-    let pad = 4.5;
-    let head_h = step + pad * 2.0;
     let bottom = page_bottom(template, cy, footer_h);
 
     // แถวข้อมูลจริง (ข้าม None)
     let rows: Vec<&serde_json::Value> = detail_rows.iter().filter_map(|r| r.as_ref()).collect();
 
-    let draw_head = |ops: &mut Vec<Op>, yy: f32, pg: usize| -> Result<(), String> {
-        let mut x = cx + mm_to_pt(t.x);
-        for (i, col) in t.columns.iter().enumerate() {
-            ops.push(Op::Box {
-                x,
-                y: yy,
-                w: col_w[i],
-                h: head_h,
-                fill: Some((0.94, 0.94, 0.94)),
-                stroke: Some((0.0, 0.0, 0.0)),
-                width: 0.5,
-                ellipse: false,
-            });
-            let missing = tr_text::missing_glyphs(font_bytes, &col.header);
-            if !missing.is_empty() {
-                let sample: String = missing.iter().take(8).collect();
-                return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ header: {sample:?}", t.font));
-            }
-            let lw = tr_text::measure_thai_width(&col.header, font_bytes, size);
-            let dx = match col.align {
-                Align::Left => pad,
-                Align::Center => ((col_w[i] - lw) / 2.0).max(pad),
-                Align::Right => (col_w[i] - lw - pad).max(pad),
-            };
-            ops.push(Op::Text {
-                x: x + dx,
-                y: yy + pad + size,
-                size,
-                content: col.header.clone(),
-                bold: true,
-                family: t.font.clone(),
-            });
-            x += col_w[i];
-        }
-        let _ = pg;
-        Ok(())
-    };
-
-    let pg0 = *cur + 1;
     y += mm_to_pt(t.y);
-    draw_head(&mut pages[*cur], y, pg0)?;
-    y += head_h;
+    pages[*cur].extend(build_head(t, cx + mm_to_pt(t.x), y, fonts)?);
+    y += head_height(t);
 
     for (ri, row) in rows.iter().enumerate() {
-        // เตรียมบรรทัดแต่ละคอลัมน์
-        let mut per_col: Vec<Vec<String>> = Vec::new();
-        let mut max_lines = 1usize;
-        for (i, col) in t.columns.iter().enumerate() {
-            let raw = tr_core::bind_text(&col.field, data, Some(row), *cur + 1, total_pages);
-            let missing = tr_text::missing_glyphs(font_bytes, &raw);
-            if !missing.is_empty() {
-                let sample: String = missing.iter().take(8).collect();
-                return Err(format!("ฟอนต์ {} ไม่มี glyph สำหรับ: {sample:?}", t.font));
-            }
-            let w = (col_w[i] - pad * 2.0).max(10.0);
-            let wrapped = tr_text::wrap_thai(&raw, font_bytes, size, w, extra);
-            max_lines = max_lines.max(wrapped.len().max(1));
-            per_col.push(if wrapped.is_empty() { vec![String::new()] } else { wrapped });
-        }
-        let rh = max_lines as f32 * step + pad * 2.0;
+        let (_, rh) = build_row(t, row, ri, data, *cur + 1, total_pages, cx, 0.0, fonts, extra)?;
         if y + rh > bottom + 0.01 {
             // ปิดหน้าปัจจุบันด้วย footer
             let pg = *cur + 1;
@@ -991,41 +1255,12 @@ fn layout_table_paged(
                 }
             }
             if t.header_repeat {
-                draw_head(&mut pages[*cur], y, pg)?;
-                y += head_h;
+                pages[*cur].extend(build_head(t, cx + mm_to_pt(t.x), y, fonts)?);
+                y += head_height(t);
             }
         }
-        let mut x = cx + mm_to_pt(t.x);
-        for (i, _col) in t.columns.iter().enumerate() {
-            let fill = if ri % 2 == 1 { Some((0.97, 0.97, 0.97)) } else { None };
-            pages[*cur].push(Op::Box {
-                x,
-                y,
-                w: col_w[i],
-                h: rh,
-                fill,
-                stroke: Some((0.0, 0.0, 0.0)),
-                width: 0.5,
-                ellipse: false,
-            });
-            for (li, line) in per_col[i].iter().enumerate() {
-                let lw = tr_text::measure_thai_width(line, font_bytes, size);
-                let dx = match t.columns[i].align {
-                    Align::Left => pad,
-                    Align::Center => ((col_w[i] - lw) / 2.0).max(pad),
-                    Align::Right => (col_w[i] - lw - pad).max(pad),
-                };
-                pages[*cur].push(Op::Text {
-                    x: x + dx,
-                    y: y + pad + size + li as f32 * step,
-                    size,
-                    content: line.clone(),
-                    bold: false,
-                    family: t.font.clone(),
-                });
-            }
-            x += col_w[i];
-        }
+        let (o, _) = build_row(t, row, ri, data, *cur + 1, total_pages, cx + mm_to_pt(t.x), y, fonts, extra)?;
+        pages[*cur].extend(o);
         y += rh;
     }
     let _ = (header_h, top);
@@ -1037,17 +1272,22 @@ fn draw_op(
     op: &Op,
     k_reg: &Font,
     k_bold: &Font,
+    k_light: &Font,
     k_noto: Option<Font>,
 ) -> Result<(), String> {
     match op {
-        Op::Text { x, y, size, content, bold, family, .. } => {
+        Op::Text { x, y, size, content, bold, family, color, .. } => {
             let f = if family == "NotoSansThai" {
                 k_noto.clone().unwrap_or_else(|| k_reg.clone())
+            } else if family == "Sarabun-Light" && !*bold {
+                k_light.clone()
             } else if *bold || family.to_lowercase().contains("bold") {
                 k_bold.clone()
             } else {
                 k_reg.clone()
             };
+            let rgb = color.unwrap_or((0.0, 0.0, 0.0));
+            surface.set_fill(Some(paint_fill(rgb)));
             surface.draw_text(
                 Point::from_xy(*x, *y),
                 f,

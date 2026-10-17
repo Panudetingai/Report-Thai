@@ -1,0 +1,287 @@
+{
+  "schemaVersion": "1.0",
+  "page": {
+    "size": "A4",
+    "margin": [
+      15,
+      15,
+      15,
+      15
+    ],
+    "orientation": "portrait"
+  },
+  "fonts": [
+    {
+      "family": "Sarabun",
+      "embed": true
+    }
+  ],
+  "user_dict": [],
+  "bands": [
+    {
+      "type": "title",
+      "height": 18,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 3,
+          "w": 180,
+          "h": 9,
+          "font": "Sarabun",
+          "size": 14,
+          "text": "รายงานยอดขายตามหมวดสินค้า",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "center"
+        }
+      ]
+    },
+    {
+      "type": "columnHeader",
+      "height": 8,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 1,
+          "w": 22,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "ลำดับ",
+          "overflow": "wrap",
+          "bold": true
+        },
+        {
+          "type": "text",
+          "x": 22,
+          "y": 1,
+          "w": 88,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "สินค้า",
+          "overflow": "wrap",
+          "bold": true
+        },
+        {
+          "type": "text",
+          "x": 110,
+          "y": 1,
+          "w": 30,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "จำนวน",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        },
+        {
+          "type": "text",
+          "x": 140,
+          "y": 1,
+          "w": 40,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "ยอดขาย",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "type": "groupHeader",
+      "groupBy": "item.category",
+      "height": 8,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 1,
+          "w": 180,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 10,
+          "text": "หมวด {{ group.value }} · {{ group.count }} รายการ",
+          "overflow": "wrap",
+          "bold": true
+        }
+      ]
+    },
+    {
+      "type": "detail",
+      "dataSource": "items",
+      "height": 6,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 0,
+          "w": 22,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ item.no }}",
+          "overflow": "wrap"
+        },
+        {
+          "type": "text",
+          "x": 22,
+          "y": 0,
+          "w": 88,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ item.name }}",
+          "overflow": "wrap"
+        },
+        {
+          "type": "text",
+          "x": 110,
+          "y": 0,
+          "w": 30,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ item.qty }}",
+          "overflow": "wrap",
+          "align": "right"
+        },
+        {
+          "type": "text",
+          "x": 140,
+          "y": 0,
+          "w": 40,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ number(item.amount) }}",
+          "overflow": "wrap",
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "type": "groupFooter",
+      "height": 7,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 1,
+          "w": 110,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "รวมหมวด {{ group.value }}",
+          "overflow": "wrap",
+          "bold": true
+        },
+        {
+          "type": "text",
+          "x": 110,
+          "y": 1,
+          "w": 30,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ sum(item.qty, 0) }}",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        },
+        {
+          "type": "text",
+          "x": 140,
+          "y": 1,
+          "w": 40,
+          "h": 5,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "{{ sum(item.amount) }}",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "type": "summary",
+      "height": 12,
+      "gap_before": 3,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 2,
+          "w": 110,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 10,
+          "text": "รวมทั้งสิ้น {{ count() }} รายการ",
+          "overflow": "wrap",
+          "bold": true
+        },
+        {
+          "type": "text",
+          "x": 110,
+          "y": 2,
+          "w": 30,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 10,
+          "text": "{{ sum(item.qty, 0) }}",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        },
+        {
+          "type": "text",
+          "x": 140,
+          "y": 2,
+          "w": 40,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 10,
+          "text": "{{ sum(item.amount) }}",
+          "overflow": "wrap",
+          "bold": true,
+          "align": "right"
+        }
+      ]
+    },
+    {
+      "type": "pageFooter",
+      "height": 8,
+      "elements": [
+        {
+          "type": "text",
+          "x": 0,
+          "y": 1,
+          "w": 120,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "รายงานนี้สร้างจากยอดขายตัวอย่าง",
+          "overflow": "wrap"
+        },
+        {
+          "type": "text",
+          "x": 120,
+          "y": 1,
+          "w": 60,
+          "h": 6,
+          "font": "Sarabun",
+          "size": 9,
+          "text": "หน้า {{ page }}/{{ pages }}",
+          "overflow": "wrap",
+          "align": "right"
+        }
+      ]
+    }
+  ]
+}

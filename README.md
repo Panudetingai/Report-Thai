@@ -3,7 +3,7 @@
 Report/document engine โอเพนซอร์สฟรี ทางเลือกแทน JasperReports — Thai-first
 
 > สเปกหลัก: ดู `thai-report-spec.md`
-> สถานะ: **Phase 1 เสร็จ** (Core engine + CLI; รายงาน `docs/phase-1-report.md`)
+> สถานะ: **Phase 2 เสร็จ** (WASM + Designer ขั้นต้น; รายงาน `docs/phase-2-report.md`)
 > License กลาง: MIT (`LICENSE-MIT`)
 
 ## โครงโปรเจกต์
@@ -30,14 +30,25 @@ examples/nextjs-quickstart/
 docs/
 ```
 
-## เริ่มใช้งาน (Phase 0)
+## เริ่มใช้งาน
 
-```powershell
-cargo build
-cargo test -p tr-core -p tr-thai -p tr-text -p tr-pdf -p tr-cli -p tr-etax
-# เรนเดอร์ตัวอย่าง (ต้องมีฟอนต์ใน fonts/ แล้ว)
+```bash
+cargo test --workspace --exclude tr-node
 cargo run -p tr-cli -- render templates/invoice-full.json templates/invoice-full.data.json -o out.pdf
+
+# Phase 2 — WASM + Designer
+./scripts/build-wasm.sh
+cd packages/designer && npm install && npm run dev
+
+# ตรวจว่าทุกฟิลด์ใน {{ }} มีในข้อมูล
+cargo run -p tr-cli -- validate templates/receipt.json templates/receipt.data.json
+
+# MCP server ให้ AI client สร้าง/ตรวจ/พรีวิว/ออก PDF — ดู crates/tr-mcp/README.md
+cargo build --release -p tr-mcp
 ```
+
+React: `packages/react/README.md` · ตัวอย่าง Next.js: `examples/nextjs-quickstart/` · HTTP API: `crates/tr-server/README.md` ·
+Node.js: `packages/node/README.md` · MCP: `crates/tr-mcp/README.md`
 
 ดูเกณฑ์ตรวจรับใน `thai-report-spec.md` หัวข้อ 7 (Phase 0) และบันทึกผลใน `docs/spike-report.md`
 

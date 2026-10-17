@@ -1,5 +1,5 @@
 //! Spike Phase 0 ข้อ 5: เซ็น PAdES ด้วย underskrift (BSD-2-Clause) + ตรวจด้วย verifier
-//! รัน: cargo run -p tr-etax --example spike_item5
+//! รัน: cargo run -p tr-etax --example spike_item5 --features spike
 //! ต้องมีกุญแจทดสอบก่อน (สร้างโดยเจ้าของเครื่องเท่านั้น — ห้ามส่ง private key ผ่านแชต):
 //!   openssl req -x509 -newkey rsa:2048 -keyout test-key.pem -out test-cert.pem -days 365 -nodes -subj "/CN=ThaiReport Spike TEST ONLY"
 //!   openssl pkcs12 -export -legacy -out test-identity.p12 -inkey test-key.pem -in test-cert.pem -passout pass:spike-test

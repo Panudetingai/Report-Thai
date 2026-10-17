@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod aggregate;
+pub mod check;
+pub mod expr;
+
 pub const MM_TO_PT: f32 = 72.0 / 25.4;
 
 #[inline]
@@ -53,8 +57,59 @@ impl Template {
             b.validate()
                 .map_err(|e| format!("bands[{i}]: {e}"))?;
         }
+        self.group_levels()?;
         Ok(())
     }
+
+    /// ชั้นของการจัดกลุ่ม เรียงจากนอกสุดเข้าใน — หัวกลุ่มที่มี `groupBy` ตามลำดับใน template
+    ///
+    /// ท้ายกลุ่มจับคู่กับหัวกลุ่มดังนี้: ระบุ `groupBy` ตรงกับหัวกลุ่ม → คู่นั้น · ไม่ระบุ → ไล่จากชั้นในสุดออกมา
+    /// ตามลำดับที่เขียน (เหมือนบนกระดาษ: หัวนอก, หัวใน, รายการ, ท้ายใน, ท้ายนอก)
+    /// ไม่มีหัวกลุ่มที่มี `groupBy` → คืนว่าง (หัว/ท้ายกลุ่มวาดครั้งเดียวแบบเดิม)
+    pub fn group_levels(&self) -> Result<Vec<GroupLevel<'_>>, String> {
+        let mut levels: Vec<GroupLevel> = Vec::new();
+        for b in self.bands.iter().filter(|b| b.band_type == BandType::GroupHeader) {
+            if let Some(key) = b.group_by.as_deref() {
+                if levels.iter().any(|l| l.key == key) {
+                    return Err(format!("หัวกลุ่มจัดกลุ่มด้วย '{key}' ซ้ำกัน"));
+                }
+                levels.push(GroupLevel { key, header: b, footer: None });
+            }
+        }
+        if levels.is_empty() {
+            return Ok(levels);
+        }
+        let footers: Vec<&Band> = self.bands.iter().filter(|b| b.band_type == BandType::GroupFooter).collect();
+        for f in footers.iter().filter(|f| f.group_by.is_some()) {
+            let key = f.group_by.as_deref().unwrap_or_default();
+            let lv = levels
+                .iter_mut()
+                .find(|l| l.key == key)
+                .ok_or_else(|| format!("ท้ายกลุ่ม groupBy '{key}' ไม่มีหัวกลุ่มที่จัดกลุ่มด้วยฟิลด์นี้"))?;
+            if lv.footer.is_some() {
+                return Err(format!("กลุ่ม '{key}' มีท้ายกลุ่มมากกว่าหนึ่ง"));
+            }
+            lv.footer = Some(f);
+        }
+        for f in footers.iter().filter(|f| f.group_by.is_none()) {
+            let lv = levels
+                .iter_mut()
+                .rev()
+                .find(|l| l.footer.is_none())
+                .ok_or("ท้ายกลุ่มมากกว่าหัวกลุ่ม — ระบุ groupBy ให้ท้ายกลุ่ม หรือลบ band ที่เกิน")?;
+            lv.footer = Some(f);
+        }
+        Ok(levels)
+    }
+}
+
+/// หนึ่งชั้นของการจัดกลุ่ม (ดู `Template::group_levels`)
+#[derive(Debug, Clone, Copy)]
+pub struct GroupLevel<'a> {
+    /// ฟิลด์ที่ใช้จัดกลุ่ม เช่น "item.category"
+    pub key: &'a str,
+    pub header: &'a Band,
+    pub footer: Option<&'a Band>,
 }
 
 /// หน้ากระดาษ
@@ -67,6 +122,9 @@ pub struct Page {
     pub margin: [f32; 4],
     #[serde(default)]
     pub orientation: Orientation,
+    /// ขนาดกำหนดเอง [กว้าง, สูง] mm ใช้เมื่อ size = "custom"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_mm: Option<[f32; 2]>,
 }
 
 fn default_page_size() -> PageSize {
@@ -82,6 +140,7 @@ impl Default for Page {
             size: PageSize::A4,
             margin: [10.0, 10.0, 10.0, 10.0],
             orientation: Orientation::Portrait,
+            custom_mm: None,
         }
     }
 }
@@ -93,12 +152,21 @@ impl Page {
                 return Err(format!("margin {m} เกินช่วง 0..100 mm"));
             }
         }
+        if self.size == PageSize::Custom {
+            let [w, h] = self.custom_mm.ok_or("size=custom ต้องระบุ custom_mm")?;
+            if !(20.0..=2000.0).contains(&w) || !(20.0..=2000.0).contains(&h) {
+                return Err(format!("custom_mm {w}x{h} เกินช่วง 20..2000 mm"));
+            }
+        }
         Ok(())
     }
 
     /// ขนาดหน้ากระดาษหน่วย pt (กว้าง, สูง) คำนึง orientation แล้ว
     pub fn size_pt(&self) -> (f32, f32) {
-        let (w_mm, h_mm) = self.size.mm();
+        let (w_mm, h_mm) = match (self.size, self.custom_mm) {
+            (PageSize::Custom, Some([w, h])) => (w, h),
+            _ => self.size.mm(),
+        };
         let (mut w, mut h) = (mm_to_pt(w_mm), mm_to_pt(h_mm));
         if self.orientation == Orientation::Landscape {
             std::mem::swap(&mut w, &mut h);
@@ -124,12 +192,15 @@ pub enum PageSize {
     A4,
     A5,
     Letter,
+    /// ขนาดกำหนดเอง (ดู Page.custom_mm)
+    Custom,
 }
 
 impl PageSize {
+    /// ขนาดมาตรฐาน; Custom คืน A4 ถ้าไม่ได้ผ่าน Page.size_pt
     pub fn mm(&self) -> (f32, f32) {
         match self {
-            PageSize::A4 => (210.0, 297.0),
+            PageSize::A4 | PageSize::Custom => (210.0, 297.0),
             PageSize::A5 => (148.0, 210.0),
             PageSize::Letter => (215.9, 279.4),
         }
@@ -166,20 +237,82 @@ pub struct Band {
     pub height: f32,
     #[serde(default)]
     pub elements: Vec<Element>,
-    #[serde(default)]
+    /// ชื่อ array ในข้อมูลที่ band นี้วน (JSON: "dataSource"; รับ "data_source" ได้ด้วย)
+    #[serde(default, rename = "dataSource", alias = "data_source")]
     pub data_source: Option<String>,
     /// ระยะห่างด้านบนก่อนวาง band นี้ (mm) — เช่น summary เว้นห่างจากตาราง
     #[serde(default)]
     pub gap_before: f32,
+    /// ชื่อที่แสดงในเครื่องมือออกแบบ (ไม่มีผลต่อ PDF) เช่น "ชื่อลูกค้า"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// โหมดของ band ส่วนเนื้อหา (type = section): list = วนตามข้อมูล, content = วาดครั้งเดียว
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<BandMode>,
+    /// (groupHeader) ฟิลด์ที่ใช้จัดกลุ่มแถวของ detail เช่น "item.category" — หลายหัวกลุ่ม = กลุ่มซ้อน (นอก → ใน)
+    /// แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน — ข้อมูลต้องเรียงตามฟิลด์นี้มาก่อน (เหมือน Jasper)
+    /// (groupFooter) ระบุได้เพื่อบอกว่าเป็นท้ายของกลุ่มไหน (ไม่ระบุ = จับคู่ตามลำดับ ดู `Template::group_levels`)
+    #[serde(default, rename = "groupBy", alias = "group_by", skip_serializing_if = "Option::is_none")]
+    pub group_by: Option<String>,
+}
+
+/// โหมดของ band ส่วนเนื้อหา
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BandMode {
+    /// วนซ้ำหนึ่งครั้งต่อหนึ่งแถวของ data_source
+    List,
+    /// วาดครั้งเดียว
+    Content,
+}
+
+impl Band {
+    /// band นี้วนตามข้อมูลหรือไม่ (detail วนเสมอ, section ตาม mode)
+    pub fn is_list(&self) -> bool {
+        match self.band_type {
+            BandType::Detail => true,
+            BandType::Section => self.mode == Some(BandMode::List),
+            _ => false,
+        }
+    }
+
+    /// band ที่ไหลอยู่ในเนื้อเอกสารตามลำดับ (detail และ section)
+    pub fn is_flow(&self) -> bool {
+        matches!(self.band_type, BandType::Detail | BandType::Section)
+    }
 }
 
 impl Band {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(n) = &self.name {
+            if n.chars().count() > 60 {
+                return Err("ชื่อ band ยาวเกิน 60 ตัวอักษร".to_string());
+            }
+        }
         if !(1.0..=500.0).contains(&self.height) {
             return Err(format!("height {} เกินช่วง", self.height));
         }
         if !(0.0..=100.0).contains(&self.gap_before) {
             return Err(format!("gap_before {} เกินช่วง 0..100 mm", self.gap_before));
+        }
+        // band เนื้อหา/รายการที่มีตาราง: ตารางสูงไม่แน่นอนและข้ามหน้าได้ → ต้องอยู่ band เดียวลำพัง
+        let has_table = self.elements.iter().any(|e| matches!(e, Element::Table(_)));
+        if self.is_flow() && has_table && self.elements.len() > 1 {
+            return Err("band ที่มีตารางต้องมีเฉพาะตาราง — วาง element อื่นไว้ band ก่อนหรือหลัง".to_string());
+        }
+        if let Some(g) = &self.group_by {
+            if !matches!(self.band_type, BandType::GroupHeader | BandType::GroupFooter) {
+                return Err("groupBy ใช้ได้เฉพาะ band หัวกลุ่ม (groupHeader) และท้ายกลุ่ม (groupFooter)".to_string());
+            }
+            if g.trim().is_empty() {
+                return Err("groupBy ว่างไม่ได้".to_string());
+            }
+        }
+        if self.band_type == BandType::Section && self.mode == Some(BandMode::List) {
+            let ds = self.data_source.as_deref().unwrap_or("").trim();
+            if ds.is_empty() {
+                return Err("band แบบรายการต้องระบุ dataSource (ชื่อ array ในข้อมูล)".to_string());
+            }
         }
         for (i, e) in self.elements.iter().enumerate() {
             e.validate().map_err(|err| format!("elements[{i}]: {err}"))?;
@@ -191,6 +324,8 @@ impl Band {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BandType {
+    /// ส่วนเนื้อหาที่ผู้ใช้เพิ่มเอง (หลายชุดได้ วางตามลำดับในเอกสาร)
+    Section,
     Title,
     PageHeader,
     ColumnHeader,
@@ -232,6 +367,7 @@ pub enum Element {
     Rectangle(RectEl),
     Ellipse(EllipseEl),
     Table(TableEl),
+    Checkbox(CheckboxEl),
 }
 
 impl Element {
@@ -243,6 +379,7 @@ impl Element {
             Element::Rectangle(r) => r.validate(),
             Element::Ellipse(e) => e.validate(),
             Element::Table(t) => t.validate(),
+            Element::Checkbox(c) => c.validate(),
         }
     }
 }
@@ -271,6 +408,9 @@ pub struct TextEl {
     /// ใช้ได้เฉพาะ align left เท่านั้น
     #[serde(default)]
     pub leader: Option<String>,
+    /// สีตัวอักษร #RRGGBB (ค่าเริ่มต้นดำ)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn default_font() -> String {
@@ -287,6 +427,11 @@ impl TextEl {
         }
         if !(5.0..=72.0).contains(&self.size) {
             return Err(format!("size {} เกินช่วง 5..72", self.size));
+        }
+        if let Some(c) = self.color.as_deref() {
+            if parse_hex_color(c).is_none() {
+                return Err(format!("color '{c}' ต้องเป็นรูปแบบ #RRGGBB"));
+            }
         }
         if let Some(l) = self.leader.as_deref() {
             if l.is_empty() || l.chars().any(|c| c.is_control()) {
@@ -369,6 +514,42 @@ pub struct RectEl {
     pub width: f32,
 }
 
+/// ช่องติ๊ก: วาดกรอบ และเครื่องหมายถูกเมื่อ `checked` เป็นจริง
+/// checked = "true" / "false" (คงที่) หรือ "{{ item.paid }}" (ผูกข้อมูล — ค่าว่าง/false/0/ไม่ = ไม่ติ๊ก)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckboxEl {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(default)]
+    pub checked: String,
+    #[serde(default)]
+    pub stroke: Option<String>,
+    #[serde(default = "default_stroke")]
+    pub width: f32,
+}
+
+impl CheckboxEl {
+    fn validate(&self) -> Result<(), String> {
+        if self.w <= 0.0 || self.h <= 0.0 {
+            return Err("checkbox w/h ต้อง > 0".to_string());
+        }
+        if let Some(c) = self.stroke.as_deref() {
+            if parse_hex_color(c).is_none() {
+                return Err(format!("stroke '{c}' ต้องเป็นรูปแบบ #RRGGBB"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// ค่าข้อความที่ถือว่า "ติ๊ก": ไม่ว่าง และไม่ใช่ false/0/no/null/ไม่
+pub fn is_truthy(s: &str) -> bool {
+    let t = s.trim().to_lowercase();
+    !(t.is_empty() || matches!(t.as_str(), "false" | "0" | "no" | "n" | "null" | "none" | "ไม่" | "ไม่ใช่"))
+}
+
 impl RectEl {
     fn validate(&self) -> Result<(), String> {
         if self.w <= 0.0 || self.h <= 0.0 {
@@ -417,6 +598,43 @@ pub struct TableEl {
     pub data_source: Option<String>,
     #[serde(default = "default_true")]
     pub header_repeat: bool,
+    /// หัวตารางตัวหนา (ค่าเริ่มต้น true)
+    #[serde(default = "default_true")]
+    pub header_bold: bool,
+    /// สีตัวอักษรหัวตาราง #RRGGBB
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_color: Option<String>,
+    /// สีพื้นหัวตาราง #RRGGBB (ค่าเริ่มต้น #F0F0F0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_fill: Option<String>,
+    /// สีพื้นแถวคู่ (สลับสี) #RRGGBB (ค่าเริ่มต้น #F7F7F7)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zebra_fill: Option<String>,
+    /// สีเส้นกรอบตาราง #RRGGBB (ค่าเริ่มต้นดำ)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_color: Option<String>,
+    /// กฎสไตล์เฉพาะเซลล์ (ทับค่าของคอลัมน์) เช่น คอลัมน์ 4 ของแถวข้อมูลที่ 3 เป็นสีแดง
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cell_styles: Vec<CellStyle>,
+}
+
+/// สไตล์ของเซลล์เดียว: row = แถวข้อมูลที่ (เริ่มที่ 1), col = คอลัมน์ที่ (เริ่มที่ 1)
+/// row ไม่ระบุ = ทุกแถวของคอลัมน์นั้น
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CellStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<u32>,
+    pub col: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bold: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,12 +646,57 @@ pub struct TableColumn {
     pub field: String,
     #[serde(default)]
     pub align: Align,
+    /// ฟอนต์ของคอลัมน์นี้ (ค่าเริ่มต้น = ฟอนต์ของตาราง)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// ขนาดตัวอักษรของคอลัมน์ (pt) (ค่าเริ่มต้น = ขนาดของตาราง)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f32>,
+    /// ตัวหนาในเซลล์
+    #[serde(default)]
+    pub bold: bool,
+    /// สีตัวอักษร #RRGGBB
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// สีพื้นเซลล์ #RRGGBB (ทับสีสลับแถว)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
 }
 
 impl TableEl {
     fn validate(&self) -> Result<(), String> {
         if self.columns.is_empty() {
             return Err("table ต้องมี columns อย่างน้อย 1".to_string());
+        }
+        for c in [&self.header_color, &self.header_fill, &self.zebra_fill, &self.border_color].into_iter().flatten() {
+            if parse_hex_color(c).is_none() {
+                return Err(format!("สี '{c}' ในตารางต้องเป็นรูปแบบ #RRGGBB"));
+            }
+        }
+        for cs in &self.cell_styles {
+            if cs.col == 0 || cs.col as usize > self.columns.len() {
+                return Err(format!("cell_styles: col {} อยู่นอกช่วง 1..{}", cs.col, self.columns.len()));
+            }
+            if cs.row == Some(0) {
+                return Err("cell_styles: row เริ่มที่ 1".to_string());
+            }
+            for c in [&cs.color, &cs.fill].into_iter().flatten() {
+                if parse_hex_color(c).is_none() {
+                    return Err(format!("cell_styles: สี '{c}' ต้องเป็นรูปแบบ #RRGGBB"));
+                }
+            }
+        }
+        for col in &self.columns {
+            for c in [&col.color, &col.fill].into_iter().flatten() {
+                if parse_hex_color(c).is_none() {
+                    return Err(format!("สี '{c}' ในคอลัมน์ '{}' ต้องเป็นรูปแบบ #RRGGBB", col.header));
+                }
+            }
+            if let Some(sz) = col.size {
+                if !(5.0..=72.0).contains(&sz) {
+                    return Err(format!("size คอลัมน์ '{}' {sz} เกินช่วง 5..72", col.header));
+                }
+            }
         }
         let sum: f32 = self.columns.iter().map(|c| c.width).sum();
         if (sum - self.w).abs() > 0.5 {
@@ -485,7 +748,8 @@ fn value_to_string(v: &serde_json::Value) -> String {
 }
 
 /// แทน {{ expr }} ในข้อความด้วยค่าจาก data + ตัวแปรพิเศษ page/pages
-/// รองรับ: {{ field.path }}, {{ item.field }} (row context), {{ page }}, {{ pages }}
+/// รองรับ: {{ field.path }}, {{ item.field }} (row context), {{ page }}, {{ pages }},
+/// ฟังก์ชันจัดรูปแบบ {{ number(item.amount) }}, {{ bahttext(total) }}, {{ thaidate(doc.date) }} ฯลฯ
 pub fn bind_text(
     raw: &str,
     data: &serde_json::Value,
@@ -518,28 +782,39 @@ fn resolve_expr(
     page: usize,
     pages: usize,
 ) -> String {
-    if expr == "page" {
-        return page.to_string();
-    }
-    if expr == "pages" {
-        return pages.to_string();
-    }
-    // item.xxx → row context ก่อน
-    if let Some(row) = row {
-        if let Some(stripped) = expr.strip_prefix("item.") {
-            if let Some(v) = lookup(row, stripped) {
-                return value_to_string(&v);
-            }
-        }
-        if let Some(v) = lookup(row, expr) {
+    // ฟังก์ชันจัดรูปแบบ เช่น number(item.amount) — ดู expr.rs
+    if expr.ends_with(')') {
+        if let Some(e @ expr::Expr::Call(..)) = expr::Expr::parse(expr) {
+            let v = expr::eval(&e, &|p| resolve_path(p, data, row, page, pages));
             return value_to_string(&v);
         }
     }
-    if let Some(v) = lookup(data, expr) {
-        return value_to_string(&v);
-    }
     // หาไม่เจอ → คืนว่าง (ไม่ throw เพื่อให้ PDF ออกต่อได้)
-    String::new()
+    resolve_path(expr, data, row, page, pages).map(|v| value_to_string(&v)).unwrap_or_default()
+}
+
+/// ค่าของฟิลด์: page/pages → แถวปัจจุบัน (item.xxx หรือชื่อตรง) → ข้อมูลทั้งก้อน
+fn resolve_path(
+    expr: &str,
+    data: &serde_json::Value,
+    row: Option<&serde_json::Value>,
+    page: usize,
+    pages: usize,
+) -> Option<serde_json::Value> {
+    match expr {
+        "page" => return Some(page.into()),
+        "pages" => return Some(pages.into()),
+        _ => {}
+    }
+    if let Some(row) = row {
+        if let Some(v) = expr.strip_prefix("item.").and_then(|s| lookup(row, s)) {
+            return Some(v);
+        }
+        if let Some(v) = lookup(row, expr) {
+            return Some(v);
+        }
+    }
+    lookup(data, expr)
 }
 
 /// แปลงสี hex "#RRGGBB" / "#RGB" เป็น (r,g,b) 0..1
@@ -603,6 +878,22 @@ mod tests {
         let data = json!({});
         let row = json!({"name": "ดินสอ", "price": 10});
         assert_eq!(bind_text("{{ item.name }} {{ item.price }}", &data, Some(&row), 1, 1), "ดินสอ 10");
+    }
+
+    #[test]
+    fn bind_text_functions_use_row_data_and_page() {
+        let data = json!({"total": 1200, "doc": {"date": "2026-10-17"}});
+        let row = json!({"amount": "2606.5"});
+        let s = bind_text(
+            "{{ number(item.amount) }} | {{ bahttext(total) }} | {{ thaidate(doc.date) }} | หน้า {{ thaidigits(page) }}",
+            &data,
+            Some(&row),
+            3,
+            9,
+        );
+        assert_eq!(s, "2,606.50 | หนึ่งพันสองร้อยบาทถ้วน | 17 ตุลาคม 2569 | หน้า ๓");
+        // ฟิลด์ที่ชื่อมีวงเล็บแต่ไม่ใช่การเรียกฟังก์ชัน ยังอ่านแบบ path เดิม
+        assert_eq!(bind_text("{{ x(1 }}", &json!({"x(1": "ok"}), None, 1, 1), "ok");
     }
 
     #[test]
