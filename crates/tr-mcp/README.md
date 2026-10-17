@@ -4,6 +4,15 @@
 
 ## เริ่มใช้งาน
 
+**จากไฟล์ release (ไม่ต้องมี Rust):** ดาวน์โหลด `thaireport-<เวอร์ชัน>-<แพลตฟอร์ม>` จากหน้า Releases แล้วแตกไฟล์
+ในโฟลเดอร์มี `tr-mcp`, `thaireport` (CLI), `tr-server` (HTTP API), `fonts/`, `templates/` — `tr-mcp` หา `fonts/` และ
+`templates/` ข้างตัวเองได้ จึงตั้งแค่ `TR_OUTPUT_DIR` (ที่เก็บ PDF) ก็พอ ใช้ path ของโฟลเดอร์ที่แตกไว้แทน path ของ repo ด้านล่าง
+
+macOS: ไฟล์ยังไม่ได้ลงนาม (sign) ถ้าเปิดไม่ได้เพราะ "ไม่ทราบผู้พัฒนา" ให้รันครั้งเดียว
+`xattr -dr com.apple.quarantine <โฟลเดอร์ที่แตกไว้>`
+
+**จาก source:**
+
 ```bash
 cargo build --release -p tr-mcp      # ได้ target/release/tr-mcp
 ```
@@ -58,8 +67,8 @@ claude mcp add --transport stdio \
 
 | ตัวแปร | ค่าเริ่มต้น | |
 |---|---|---|
-| `TR_FONTS_DIR` | `./fonts` | ต้องมี `Sarabun-Regular.ttf` |
-| `TR_TEMPLATES_DIR` | `./templates` | อ่าน/บันทึก template |
+| `TR_FONTS_DIR` | `./fonts` ถ้ามี ไม่งั้น `fonts/` ข้างไฟล์โปรแกรม | ต้องมี `Sarabun-Regular.ttf` |
+| `TR_TEMPLATES_DIR` | `./templates` ถ้ามี ไม่งั้น `templates/` ข้างไฟล์โปรแกรม | อ่าน/บันทึก template |
 | `TR_OUTPUT_DIR` | `./out` | ที่เขียน PDF (สร้างให้ถ้ายังไม่มี) |
 
 ## ความปลอดภัย

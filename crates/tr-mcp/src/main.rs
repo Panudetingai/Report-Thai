@@ -4,9 +4,12 @@
 //! render_report (PDF), save_template — ดู `server.rs`
 //!
 //! ตัวแปรสภาพแวดล้อม (path สัมพัทธ์อิงโฟลเดอร์ที่รันคำสั่ง):
-//! - `TR_FONTS_DIR`      โฟลเดอร์ฟอนต์ (ค่าเริ่มต้น ./fonts)
-//! - `TR_TEMPLATES_DIR`  โฟลเดอร์ template (ค่าเริ่มต้น ./templates)
+//! - `TR_FONTS_DIR`      โฟลเดอร์ฟอนต์ (ไม่ตั้ง: ./fonts ถ้ามี ไม่งั้น fonts/ ข้างไฟล์โปรแกรม)
+//! - `TR_TEMPLATES_DIR`  โฟลเดอร์ template (ไม่ตั้ง: ./templates ถ้ามี ไม่งั้น templates/ ข้างไฟล์โปรแกรม)
 //! - `TR_OUTPUT_DIR`     โฟลเดอร์ที่เขียน PDF (ค่าเริ่มต้น ./out)
+//!
+//! การหาข้างไฟล์โปรแกรมทำให้ชุดที่แตกจาก release (โปรแกรม + fonts/ + templates/) ใช้ได้ทันที
+//! แม้ AI client จะรันจากโฟลเดอร์อื่น
 //!
 //! stdout ใช้คุยโปรโตคอลเท่านั้น — ข้อความถึงผู้ใช้เขียนลง stderr
 
@@ -19,9 +22,25 @@ fn dir(var: &str, default: &str) -> PathBuf {
     PathBuf::from(std::env::var(var).unwrap_or_else(|_| default.to_string()))
 }
 
+/// ตั้ง env → ใช้ค่านั้น · ไม่ตั้ง → ./<name> ถ้ามี ไม่งั้น <name>/ ข้างไฟล์โปรแกรม (ถ้ามี)
+fn dir_near_exe(var: &str, name: &str) -> PathBuf {
+    if let Ok(v) = std::env::var(var) {
+        return PathBuf::from(v);
+    }
+    let local = PathBuf::from(name);
+    if local.is_dir() {
+        return local;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join(name)))
+        .filter(|p| p.is_dir())
+        .unwrap_or(local)
+}
+
 #[tokio::main]
 async fn main() {
-    let fonts_dir = dir("TR_FONTS_DIR", "fonts");
+    let fonts_dir = dir_near_exe("TR_FONTS_DIR", "fonts");
     let fonts = tr_text::load_bundled_fonts(&fonts_dir);
     if !fonts.contains_key("Sarabun") {
         eprintln!("tr-mcp เริ่มไม่ได้: ไม่พบ Sarabun-Regular.ttf ใน {} (ตั้ง TR_FONTS_DIR)", fonts_dir.display());
@@ -29,7 +48,7 @@ async fn main() {
     }
     let engine = Engine {
         fonts,
-        templates_dir: dir("TR_TEMPLATES_DIR", "templates"),
+        templates_dir: dir_near_exe("TR_TEMPLATES_DIR", "templates"),
         output_dir: dir("TR_OUTPUT_DIR", "out"),
     };
     eprintln!(
