@@ -55,6 +55,9 @@ jobs:
         run: npm ci
       - name: WASM ↔ native ได้ PDF ตรงกัน
         run: cargo test -p tr-pdf wasm_native_pdf_parity -- --ignored
+      - name: designer — typecheck
+        working-directory: packages/designer
+        run: npm run typecheck
       - name: designer — เทสต์
         working-directory: packages/designer
         run: npm test
