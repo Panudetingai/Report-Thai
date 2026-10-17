@@ -13,8 +13,10 @@
 //! - จำกัดขนาด body ตามค่า `max_body_bytes`
 //! - SQL: ไคลเอนต์เลือกได้แค่ชื่อคิวรีและค่าพารามิเตอร์ ผูกเป็น prepared statement เสมอ (ดู sql.rs)
 //! - การเรนเดอร์รันใน blocking pool ไม่บล็อก event loop
+//! - จำกัดเวลาต่อคำขอ (`RenderLimits::timeout` → 504) และจำนวนงานเรนเดอร์พร้อมกัน (`RenderLimits::slots`
+//!   คำขอที่เกินรอคิวภายในเวลาเดียวกัน) — งานที่หมดเวลายังถือช่องไว้จนเรนเดอร์เสร็จจริง เพื่อไม่ให้ CPU ล้น
 //!
-//! หมายเหตุ: ยังไม่มี rate limit, auth, timeout ต่อคำขอ — ต้องวางหลัง reverse proxy ที่จัดการเรื่องเหล่านี้
+//! หมายเหตุ: ยังไม่มี rate limit ต่อผู้ใช้และ auth — ต้องวางหลัง reverse proxy ที่จัดการเรื่องเหล่านี้
 
 use axum::{
     body::Bytes,
@@ -31,6 +33,31 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Semaphore;
+
+/// เพดานการใช้ทรัพยากรของ `POST /render`
+#[derive(Clone)]
+pub struct RenderLimits {
+    /// เวลาสูงสุดต่อคำขอ (รวมรอคิว + คิวรี SQL + เรนเดอร์)
+    pub timeout: Duration,
+    /// ช่องเรนเดอร์พร้อมกัน
+    pub slots: Arc<Semaphore>,
+}
+
+impl RenderLimits {
+    pub fn new(timeout: Duration, concurrent: usize) -> Self {
+        Self { timeout, slots: Arc::new(Semaphore::new(concurrent)) }
+    }
+}
+
+impl Default for RenderLimits {
+    /// 30 วินาที · พร้อมกันเท่าจำนวนแกน CPU
+    fn default() -> Self {
+        let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        Self::new(Duration::from_secs(30), cpus)
+    }
+}
 
 pub struct AppState {
     /// โฟลเดอร์ template สำหรับ `templateName` และ `GET /templates` (None = ปิดฟีเจอร์นี้)
@@ -43,6 +70,7 @@ pub struct AppState {
     pub queries_dir: Option<PathBuf>,
     /// จำนวนแถวสูงสุดต่อคิวรี
     pub max_query_rows: usize,
+    pub limits: RenderLimits,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +132,17 @@ pub fn is_template_name(name: &str) -> bool {
 }
 
 async fn render(State(state): State<Arc<AppState>>, body: Bytes) -> Response {
+    let limit = state.limits.timeout;
+    match tokio::time::timeout(limit, render_inner(state, body)).await {
+        Ok(resp) => resp,
+        Err(_) => error(
+            StatusCode::GATEWAY_TIMEOUT,
+            format!("เรนเดอร์ไม่เสร็จภายใน {} วินาที (เซิร์ฟเวอร์ไม่ว่างหรือรายงานใหญ่เกินไป)", limit.as_secs_f32()),
+        ),
+    }
+}
+
+async fn render_inner(state: Arc<AppState>, body: Bytes) -> Response {
     let req: RenderRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => return error(StatusCode::BAD_REQUEST, format!("body ไม่ใช่ JSON ที่ถูกต้อง: {e}")),
@@ -121,7 +160,11 @@ async fn render(State(state): State<Arc<AppState>>, body: Bytes) -> Response {
         Ok(d) => d,
         Err((status, msg)) => return error(status, msg),
     };
+    let Ok(permit) = state.limits.slots.clone().acquire_owned().await else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "เซิร์ฟเวอร์กำลังปิด".into());
+    };
     let outcome = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let _slot = permit;
         let template = tr_core::Template::from_json(&template_json)?;
         tr_pdf::render_template(&template, &data, &state.fonts, None)
     })

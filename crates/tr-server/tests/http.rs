@@ -15,7 +15,7 @@ fn fonts_dir() -> PathBuf {
 
 fn router(templates_dir: Option<PathBuf>, max_body: usize) -> axum::Router {
     let fonts = load_fonts(&fonts_dir()).expect("ฟอนต์");
-    app(Arc::new(AppState { templates_dir, fonts, db: None, queries_dir: None, max_query_rows: 100 }), max_body)
+    app(Arc::new(AppState { templates_dir, fonts, db: None, queries_dir: None, max_query_rows: 100, limits: Default::default() }), max_body)
 }
 
 fn small_template() -> Value {
@@ -154,4 +154,32 @@ async fn grouped_template_renders_over_http() {
     let (s, _, b) = send(router(None, 1 << 20), post_json("/render", &json!({ "template": t, "data": data }))).await;
     assert_eq!(s, StatusCode::OK, "{}", String::from_utf8_lossy(&b));
     assert!(b.starts_with(b"%PDF-"));
+}
+
+fn router_with(limits: tr_server::RenderLimits) -> axum::Router {
+    let fonts = load_fonts(&fonts_dir()).expect("ฟอนต์");
+    app(Arc::new(AppState { templates_dir: None, fonts, db: None, queries_dir: None, max_query_rows: 100, limits }), 1 << 20)
+}
+
+#[tokio::test]
+async fn busy_server_times_out_with_504_instead_of_hanging() {
+    // ไม่มีช่องเรนเดอร์ว่างเลย → คำขอรอคิวจนหมดเวลา แล้วได้ 504 พร้อมข้อความ
+    let limits = tr_server::RenderLimits::new(std::time::Duration::from_millis(150), 0);
+    let started = std::time::Instant::now();
+    let (status, _, body) = send(router_with(limits), post_json("/render", &json!({ "template": small_template(), "data": {} }))).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+    assert!(String::from_utf8_lossy(&body).contains("ไม่เสร็จภายใน"), "{}", String::from_utf8_lossy(&body));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[tokio::test]
+async fn render_slot_is_released_after_each_request() {
+    // ช่องเดียว: คำขอติดกันหลายครั้งต้องผ่านทุกครั้ง (ช่องถูกคืนหลังเรนเดอร์เสร็จ)
+    let limits = tr_server::RenderLimits::new(std::time::Duration::from_secs(20), 1);
+    let r = router_with(limits);
+    for _ in 0..3 {
+        let (status, _, body) = send(r.clone(), post_json("/render", &json!({ "template": small_template(), "data": {} }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with(b"%PDF"));
+    }
 }

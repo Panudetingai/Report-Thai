@@ -58,6 +58,7 @@ fn router(f: &Fixture, max_rows: usize) -> axum::Router {
             db: Some(f.pool.clone()),
             queries_dir: Some(f.dir.join("queries")),
             max_query_rows: max_rows,
+            limits: Default::default(),
         }),
         1 << 20,
     )
@@ -152,7 +153,7 @@ async fn query_errors_map_to_clear_statuses() {
 
     // ไม่ได้ตั้งค่าฐานข้อมูล
     let no_db = app(
-        Arc::new(AppState { templates_dir: None, fonts: fonts(), db: None, queries_dir: None, max_query_rows: 10 }),
+        Arc::new(AppState { templates_dir: None, fonts: fonts(), db: None, queries_dir: None, max_query_rows: 10, limits: Default::default() }),
         1 << 20,
     );
     let (s, _) = post(no_db, json!({ "template": template(), "sources": { "lines": { "query": "all_items", "params": {} } } })).await;

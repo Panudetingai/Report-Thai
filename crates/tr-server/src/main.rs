@@ -8,10 +8,13 @@
 //! - `TR_DATABASE_URL`    เช่น sqlite://data/app.db (ไม่ตั้ง = ปิด sources)
 //! - `TR_QUERIES_DIR`     โฟลเดอร์ไฟล์ *.sql ที่ผู้ดูแลเขียน (ไม่ตั้ง = ปิด sources)
 //! - `TR_MAX_QUERY_ROWS`  เพดานแถวต่อคิวรี (ค่าเริ่มต้น 10000)
+//! - `TR_RENDER_TIMEOUT_SECS`   เวลาสูงสุดต่อคำขอ /render (ค่าเริ่มต้น 30)
+//! - `TR_MAX_CONCURRENT_RENDERS` งานเรนเดอร์พร้อมกัน (ค่าเริ่มต้น = จำนวนแกน CPU)
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use tr_server::{app, load_fonts, AppState};
+use std::time::Duration;
+use tr_server::{app, load_fonts, AppState, RenderLimits};
 
 #[tokio::main]
 async fn main() {
@@ -39,7 +42,15 @@ async fn main() {
     };
     let queries_dir = std::env::var("TR_QUERIES_DIR").ok().map(PathBuf::from);
     let max_query_rows: usize = std::env::var("TR_MAX_QUERY_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(10_000);
-    let state = Arc::new(AppState { templates_dir, fonts, db, queries_dir, max_query_rows });
+    let env_num = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<usize>().ok()).filter(|n| *n > 0);
+    let mut limits = RenderLimits::default();
+    if let Some(secs) = env_num("TR_RENDER_TIMEOUT_SECS") {
+        limits.timeout = Duration::from_secs(secs as u64);
+    }
+    if let Some(n) = env_num("TR_MAX_CONCURRENT_RENDERS") {
+        limits = RenderLimits::new(limits.timeout, n);
+    }
+    let state = Arc::new(AppState { templates_dir, fonts, db, queries_dir, max_query_rows, limits });
     let listener = match tokio::net::TcpListener::bind(&bind).await {
         Ok(l) => l,
         Err(e) => {
