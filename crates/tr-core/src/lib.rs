@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod aggregate;
+pub mod check;
+pub mod expr;
 
 pub const MM_TO_PT: f32 = 72.0 / 25.4;
 
@@ -55,8 +57,59 @@ impl Template {
             b.validate()
                 .map_err(|e| format!("bands[{i}]: {e}"))?;
         }
+        self.group_levels()?;
         Ok(())
     }
+
+    /// ชั้นของการจัดกลุ่ม เรียงจากนอกสุดเข้าใน — หัวกลุ่มที่มี `groupBy` ตามลำดับใน template
+    ///
+    /// ท้ายกลุ่มจับคู่กับหัวกลุ่มดังนี้: ระบุ `groupBy` ตรงกับหัวกลุ่ม → คู่นั้น · ไม่ระบุ → ไล่จากชั้นในสุดออกมา
+    /// ตามลำดับที่เขียน (เหมือนบนกระดาษ: หัวนอก, หัวใน, รายการ, ท้ายใน, ท้ายนอก)
+    /// ไม่มีหัวกลุ่มที่มี `groupBy` → คืนว่าง (หัว/ท้ายกลุ่มวาดครั้งเดียวแบบเดิม)
+    pub fn group_levels(&self) -> Result<Vec<GroupLevel<'_>>, String> {
+        let mut levels: Vec<GroupLevel> = Vec::new();
+        for b in self.bands.iter().filter(|b| b.band_type == BandType::GroupHeader) {
+            if let Some(key) = b.group_by.as_deref() {
+                if levels.iter().any(|l| l.key == key) {
+                    return Err(format!("หัวกลุ่มจัดกลุ่มด้วย '{key}' ซ้ำกัน"));
+                }
+                levels.push(GroupLevel { key, header: b, footer: None });
+            }
+        }
+        if levels.is_empty() {
+            return Ok(levels);
+        }
+        let footers: Vec<&Band> = self.bands.iter().filter(|b| b.band_type == BandType::GroupFooter).collect();
+        for f in footers.iter().filter(|f| f.group_by.is_some()) {
+            let key = f.group_by.as_deref().unwrap_or_default();
+            let lv = levels
+                .iter_mut()
+                .find(|l| l.key == key)
+                .ok_or_else(|| format!("ท้ายกลุ่ม groupBy '{key}' ไม่มีหัวกลุ่มที่จัดกลุ่มด้วยฟิลด์นี้"))?;
+            if lv.footer.is_some() {
+                return Err(format!("กลุ่ม '{key}' มีท้ายกลุ่มมากกว่าหนึ่ง"));
+            }
+            lv.footer = Some(f);
+        }
+        for f in footers.iter().filter(|f| f.group_by.is_none()) {
+            let lv = levels
+                .iter_mut()
+                .rev()
+                .find(|l| l.footer.is_none())
+                .ok_or("ท้ายกลุ่มมากกว่าหัวกลุ่ม — ระบุ groupBy ให้ท้ายกลุ่ม หรือลบ band ที่เกิน")?;
+            lv.footer = Some(f);
+        }
+        Ok(levels)
+    }
+}
+
+/// หนึ่งชั้นของการจัดกลุ่ม (ดู `Template::group_levels`)
+#[derive(Debug, Clone, Copy)]
+pub struct GroupLevel<'a> {
+    /// ฟิลด์ที่ใช้จัดกลุ่ม เช่น "item.category"
+    pub key: &'a str,
+    pub header: &'a Band,
+    pub footer: Option<&'a Band>,
 }
 
 /// หน้ากระดาษ
@@ -196,8 +249,9 @@ pub struct Band {
     /// โหมดของ band ส่วนเนื้อหา (type = section): list = วนตามข้อมูล, content = วาดครั้งเดียว
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<BandMode>,
-    /// (groupHeader เท่านั้น) ฟิลด์ที่ใช้จัดกลุ่มแถวของ detail เช่น "item.category"
+    /// (groupHeader) ฟิลด์ที่ใช้จัดกลุ่มแถวของ detail เช่น "item.category" — หลายหัวกลุ่ม = กลุ่มซ้อน (นอก → ใน)
     /// แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน — ข้อมูลต้องเรียงตามฟิลด์นี้มาก่อน (เหมือน Jasper)
+    /// (groupFooter) ระบุได้เพื่อบอกว่าเป็นท้ายของกลุ่มไหน (ไม่ระบุ = จับคู่ตามลำดับ ดู `Template::group_levels`)
     #[serde(default, rename = "groupBy", alias = "group_by", skip_serializing_if = "Option::is_none")]
     pub group_by: Option<String>,
 }
@@ -247,8 +301,8 @@ impl Band {
             return Err("band ที่มีตารางต้องมีเฉพาะตาราง — วาง element อื่นไว้ band ก่อนหรือหลัง".to_string());
         }
         if let Some(g) = &self.group_by {
-            if self.band_type != BandType::GroupHeader {
-                return Err("groupBy ใช้ได้เฉพาะ band แบบ groupHeader".to_string());
+            if !matches!(self.band_type, BandType::GroupHeader | BandType::GroupFooter) {
+                return Err("groupBy ใช้ได้เฉพาะ band หัวกลุ่ม (groupHeader) และท้ายกลุ่ม (groupFooter)".to_string());
             }
             if g.trim().is_empty() {
                 return Err("groupBy ว่างไม่ได้".to_string());
@@ -694,7 +748,8 @@ fn value_to_string(v: &serde_json::Value) -> String {
 }
 
 /// แทน {{ expr }} ในข้อความด้วยค่าจาก data + ตัวแปรพิเศษ page/pages
-/// รองรับ: {{ field.path }}, {{ item.field }} (row context), {{ page }}, {{ pages }}
+/// รองรับ: {{ field.path }}, {{ item.field }} (row context), {{ page }}, {{ pages }},
+/// ฟังก์ชันจัดรูปแบบ {{ number(item.amount) }}, {{ bahttext(total) }}, {{ thaidate(doc.date) }} ฯลฯ
 pub fn bind_text(
     raw: &str,
     data: &serde_json::Value,
@@ -727,28 +782,39 @@ fn resolve_expr(
     page: usize,
     pages: usize,
 ) -> String {
-    if expr == "page" {
-        return page.to_string();
-    }
-    if expr == "pages" {
-        return pages.to_string();
-    }
-    // item.xxx → row context ก่อน
-    if let Some(row) = row {
-        if let Some(stripped) = expr.strip_prefix("item.") {
-            if let Some(v) = lookup(row, stripped) {
-                return value_to_string(&v);
-            }
-        }
-        if let Some(v) = lookup(row, expr) {
+    // ฟังก์ชันจัดรูปแบบ เช่น number(item.amount) — ดู expr.rs
+    if expr.ends_with(')') {
+        if let Some(e @ expr::Expr::Call(..)) = expr::Expr::parse(expr) {
+            let v = expr::eval(&e, &|p| resolve_path(p, data, row, page, pages));
             return value_to_string(&v);
         }
     }
-    if let Some(v) = lookup(data, expr) {
-        return value_to_string(&v);
-    }
     // หาไม่เจอ → คืนว่าง (ไม่ throw เพื่อให้ PDF ออกต่อได้)
-    String::new()
+    resolve_path(expr, data, row, page, pages).map(|v| value_to_string(&v)).unwrap_or_default()
+}
+
+/// ค่าของฟิลด์: page/pages → แถวปัจจุบัน (item.xxx หรือชื่อตรง) → ข้อมูลทั้งก้อน
+fn resolve_path(
+    expr: &str,
+    data: &serde_json::Value,
+    row: Option<&serde_json::Value>,
+    page: usize,
+    pages: usize,
+) -> Option<serde_json::Value> {
+    match expr {
+        "page" => return Some(page.into()),
+        "pages" => return Some(pages.into()),
+        _ => {}
+    }
+    if let Some(row) = row {
+        if let Some(v) = expr.strip_prefix("item.").and_then(|s| lookup(row, s)) {
+            return Some(v);
+        }
+        if let Some(v) = lookup(row, expr) {
+            return Some(v);
+        }
+    }
+    lookup(data, expr)
 }
 
 /// แปลงสี hex "#RRGGBB" / "#RGB" เป็น (r,g,b) 0..1
@@ -812,6 +878,22 @@ mod tests {
         let data = json!({});
         let row = json!({"name": "ดินสอ", "price": 10});
         assert_eq!(bind_text("{{ item.name }} {{ item.price }}", &data, Some(&row), 1, 1), "ดินสอ 10");
+    }
+
+    #[test]
+    fn bind_text_functions_use_row_data_and_page() {
+        let data = json!({"total": 1200, "doc": {"date": "2026-10-17"}});
+        let row = json!({"amount": "2606.5"});
+        let s = bind_text(
+            "{{ number(item.amount) }} | {{ bahttext(total) }} | {{ thaidate(doc.date) }} | หน้า {{ thaidigits(page) }}",
+            &data,
+            Some(&row),
+            3,
+            9,
+        );
+        assert_eq!(s, "2,606.50 | หนึ่งพันสองร้อยบาทถ้วน | 17 ตุลาคม 2569 | หน้า ๓");
+        // ฟิลด์ที่ชื่อมีวงเล็บแต่ไม่ใช่การเรียกฟังก์ชัน ยังอ่านแบบ path เดิม
+        assert_eq!(bind_text("{{ x(1 }}", &json!({"x(1": "ok"}), None, 1, 1), "ok");
     }
 
     #[test]

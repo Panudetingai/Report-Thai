@@ -84,6 +84,7 @@ const BAND_ACCENT = {
   title: "#2563eb",
   columnHeader: "#65a30d",
   detail: "#4f46e5",
+  section: "#4f46e5",
   groupHeader: "#9333ea",
   groupFooter: "#9333ea",
   summary: "#ea580c",

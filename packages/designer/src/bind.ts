@@ -4,11 +4,13 @@
  *   (ไม่ขึ้นกับชื่อ data source) — ถ้าไม่พบใน item. จะลองอ่านเป็น path ปกติในแถวด้วย
  * - {{ a.b[0].c }} → อ่านจาก data ตาม path (รองรับ [n])
  * - {{ page }} / {{ pages }}
- * - ฟังก์ชัน/ตัวกรอง (มี "(" หรือ "|") engine ยังไม่รองรับ → ถือว่าไม่ผูกข้อมูล
+ * - ฟังก์ชันจัดรูปแบบ number/bahttext/thaidigits/thaidate (ดู expr.js) — หน้าออกแบบแสดงเป็นป้าย ค่าจริงดูที่พรีวิว PDF
+ * - ตัวกรอง (มี "|") และฟังก์ชันอื่น engine ไม่รองรับ → ถือว่าไม่ผูกข้อมูล
  * ค่าที่หาไม่พบ: engine แสดงเป็นช่องว่าง — หน้าออกแบบแสดงเป็นป้ายเตือนแทน เพื่อให้เห็นจุดที่ต้องแก้
  */
 
 import type { BindContext, ReportData, ResolveResult } from "./types";
+import { FORMAT_FNS, exprPaths, parseExpr, toSource } from "./expr";
 
 const EXPR = /\{\{\s*([^}]+?)\s*\}\}/g;
 /** regex ของ {{ }} (flag g) สำหรับผู้ที่ต้องแทนที่/สแกนเอง */
@@ -144,6 +146,23 @@ export function describeAggregate(expr) {
   return `${AGG_LABEL[m[1]]} [${fieldBracketLabel(path)}]`;
 }
 
+const FORMAT_SUFFIX = { number: "", bahttext: " (ตัวอักษร)", thaidigits: " (เลขไทย)", thaidate: " (วันที่ไทย)" };
+
+/** ป้ายของนิพจน์ที่เป็นฟังก์ชันจัดรูปแบบ เช่น bahttext(sum(item.amount)) → "รวม [Amount] (ตัวอักษร)" · ไม่ใช่คืน null */
+export function describeFormat(expr) {
+  const e = typeof expr === "string" ? (expr.includes("(") ? parseExpr(expr.trim()) : null) : expr;
+  if (!e || e.kind !== "call" || !FORMAT_FNS.includes(e.name)) return null;
+  const a = e.args[0];
+  const inner = !a
+    ? ""
+    : a.kind === "path"
+      ? (describeAggregate(a.value) ?? `[${fieldBracketLabel(a.value)}]`)
+      : a.kind === "call"
+        ? (describeFormat(a) ?? describeAggregate(toSource(a)) ?? toSource(a))
+        : a.value;
+  return `${inner}${FORMAT_SUFFIX[e.name]}`;
+}
+
 export function designBindSegments(text, data, ctx = {}) {
   if (!text) return [];
   const out = [];
@@ -154,6 +173,15 @@ export function designBindSegments(text, data, ctx = {}) {
     const agg = describeAggregate(expr);
     if (agg) {
       out.push({ text: agg, ph: true });
+      last = m.index + m[0].length;
+      continue;
+    }
+    const fmt = describeFormat(expr);
+    if (fmt != null) {
+      // ฟิลด์ข้างในต้องหาเจอทุกตัว (ไม่นับการรวมค่า ซึ่งตัวตรวจการออกแบบดูแลแยก)
+      const miss = exprPaths(parseExpr(expr)).find((p) => !resolveExpr(p, data, ctx).ok);
+      if (miss) out.push({ raw: fmt, reason: "missing" });
+      else out.push({ text: fmt, ph: true });
       last = m.index + m[0].length;
       continue;
     }

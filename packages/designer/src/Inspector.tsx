@@ -800,7 +800,7 @@ function CellRules({ rules, columns, onChange }) {
 
 /* ---------- Band ---------- */
 
-export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, existingTypes, canDelete = true, fields }) {
+export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, onAddGroupLevel, groupKey, existingTypes, canDelete = true, fields }) {
   const missing = BAND_ORDER.filter((t) => !existingTypes.includes(t));
   return (
     <>
@@ -839,6 +839,16 @@ export function BandProps({ band, bandIndex, onPatch, onDelete, onAddBand, exist
                 </Button>
               )}
             </div>
+            {band.groupBy && onAddGroupLevel && (
+              <Button variant="outline" size="sm" className="mt-1.5 w-full" onClick={onAddGroupLevel} title="เพิ่มหัวกลุ่มและท้ายกลุ่มชั้นใน (เช่น ภาค → หมวด)">
+                + เพิ่มกลุ่มย่อย
+              </Button>
+            )}
+          </Row>
+        )}
+        {band.type === "groupFooter" && (
+          <Row label="ท้ายของกลุ่ม">
+            <span className="text-xs text-muted-foreground">{groupKey ?? "ยังไม่จัดกลุ่ม (วาดครั้งเดียวต่อท้ายรายการ)"}</span>
           </Row>
         )}
         {band.type === "detail" || band.dataSource ? (

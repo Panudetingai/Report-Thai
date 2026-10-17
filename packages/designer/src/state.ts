@@ -10,7 +10,8 @@ export const BAND_ORDER = ["pageHeader", "title", "columnHeader", "detail", "gro
 export const BAND_DEFAULT_HEIGHT = { pageHeader: 8, title: 20, columnHeader: 8, detail: 8, groupHeader: 8, groupFooter: 8, summary: 20, pageFooter: 8 };
 
 export function bandRank(type) {
-  const i = BAND_ORDER.indexOf(type);
+  // ส่วนเนื้อหา (section) ไหลในเนื้อเอกสารร่วมกับรายการ — ลำดับเดียวกัน เรียงแบบ stable จึงคงลำดับที่เขียนไว้
+  const i = BAND_ORDER.indexOf(type === "section" ? "detail" : type);
   return i < 0 ? 99 : i;
 }
 const SNAP_MM = 0.5;
@@ -20,6 +21,7 @@ export const BAND_LABELS = {
   pageHeader: "หัวกระดาษ",
   columnHeader: "หัวคอลัมน์",
   detail: "รายการ",
+  section: "ส่วนเนื้อหา",
   groupHeader: "หัวกลุ่ม",
   groupFooter: "ท้ายกลุ่ม",
   summary: "สรุป / ท้ายเอกสาร",
@@ -32,6 +34,7 @@ export const BAND_STD = {
   title: "Report Header",
   columnHeader: "Column Header",
   detail: "Detail",
+  section: "Section",
   groupHeader: "Group Header",
   groupFooter: "Group Footer",
   summary: "Report Footer",
@@ -62,6 +65,30 @@ const PLACEHOLDER_PNG =
 
 export function bandTitle(band) {
   return band.name?.trim() || BAND_LABELS[band.type] || band.type;
+}
+
+/**
+ * ชั้นของการจัดกลุ่ม (นอก → ใน) — กติกาเดียวกับ engine (tr-core Template::group_levels)
+ * หัวกลุ่มที่มี groupBy ตามลำดับ · ท้ายกลุ่มที่ระบุ groupBy จับคู่ตามฟิลด์ ไม่ระบุจับคู่จากชั้นในสุดออกมา
+ * @returns {Array<{ key: string, header: number, footer: number | null }>} index ใน template.bands
+ */
+export function groupLevels(template) {
+  const levels = [];
+  template.bands.forEach((b, i) => {
+    if (b.type === "groupHeader" && b.groupBy && !levels.some((l) => l.key === b.groupBy)) levels.push({ key: b.groupBy, header: i, footer: null });
+  });
+  if (!levels.length) return levels;
+  template.bands.forEach((b, i) => {
+    if (b.type !== "groupFooter" || !b.groupBy) return;
+    const lv = levels.find((l) => l.key === b.groupBy && l.footer == null);
+    if (lv) lv.footer = i;
+  });
+  template.bands.forEach((b, i) => {
+    if (b.type !== "groupFooter" || b.groupBy) return;
+    const lv = [...levels].reverse().find((l) => l.footer == null);
+    if (lv) lv.footer = i;
+  });
+  return levels;
 }
 
 export function snap(v) {
@@ -535,8 +562,27 @@ export function historyReducer(state, a) {
       const bands = [...state.template.bands, band].sort((x, y) => bandRank(x.type) - bandRank(y.type));
       return commit(state, { ...state.template, bands }, state.data, true);
     }
+    case "addGroupLevel": {
+      // กลุ่มย่อย: หัวกลุ่มใหม่ต่อจากหัวกลุ่มสุดท้าย + ท้ายกลุ่มใหม่ก่อนท้ายกลุ่มแรก (ชั้นในอยู่ติดรายการ)
+      const bands = [...state.template.bands];
+      const lastHead = bands.map((b) => b.type).lastIndexOf("groupHeader");
+      if (lastHead < 0) return state;
+      bands.splice(lastHead + 1, 0, { type: "groupHeader", height: BAND_DEFAULT_HEIGHT.groupHeader, elements: [], ...(a.groupBy ? { groupBy: a.groupBy } : {}) });
+      const firstFoot = bands.findIndex((b) => b.type === "groupFooter");
+      const foot = { type: "groupFooter", height: BAND_DEFAULT_HEIGHT.groupFooter, elements: [] };
+      if (firstFoot >= 0) bands.splice(firstFoot, 0, foot);
+      else {
+        let at = bands.length;
+        while (at > 0 && bandRank(bands[at - 1].type) > bandRank("groupFooter")) at -= 1;
+        bands.splice(at, 0, foot);
+      }
+      return commit(state, { ...state.template, bands }, state.data, true);
+    }
     case "removeBand": {
-      const bands = state.template.bands.filter((_, i) => i !== a.band);
+      // กลุ่มซ้อน: ลบหัวกลุ่มแล้วลบท้ายกลุ่มที่คู่กันด้วย ไม่ให้ท้ายกลุ่มเกิน (engine จะแจ้ง error)
+      const levels = groupLevels(state.template);
+      const pair = levels.length > 1 ? levels.find((l) => l.header === a.band)?.footer : null;
+      const bands = state.template.bands.filter((_, i) => i !== a.band && i !== pair);
       return commit(state, { ...state.template, bands }, state.data, true);
     }
     case "patchTemplate": {

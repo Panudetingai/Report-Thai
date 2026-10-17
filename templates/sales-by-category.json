@@ -159,7 +159,7 @@
           "h": 5,
           "font": "Sarabun",
           "size": 9,
-          "text": "{{ item.amount }}",
+          "text": "{{ number(item.amount) }}",
           "overflow": "wrap",
           "align": "right"
         }

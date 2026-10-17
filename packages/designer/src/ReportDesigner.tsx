@@ -23,7 +23,7 @@ import { cleanName, frameLabel, groupLabel, nextGroupName } from "./names";
 import { Input } from "./components/ui/input";
 import { StructurePicker } from "./StructurePicker";
 import { STANDARD_STRUCTURES, loadUserStructures, makeUserStructure, parseStructureFile, saveUserStructures, structureFileText } from "./structures";
-import { ADD_KINDS, BAND_LABELS, BAND_ORDER, BAND_STD, KIND_LABELS, bandRank, bandTitle, countStrays, historyReducer, initialHistory, newElement, planMove, planPlacement, zOrderPlan } from "./state";
+import { ADD_KINDS, BAND_LABELS, BAND_ORDER, BAND_STD, KIND_LABELS, bandRank, bandTitle, countStrays, groupLevels, historyReducer, initialHistory, newElement, planMove, planPlacement, zOrderPlan } from "./state";
 import { BASE_PX_PER_MM, contentWidth, margins, pageSize } from "./layout";
 
 const MIN_ZOOM = 0.55;
@@ -862,6 +862,14 @@ export function ReportDesigner({ initialTemplate, initialData }: { initialTempla
     setNotice(`เพิ่ม ${BAND_LABELS[type]} แล้ว`);
   }
 
+  function addGroupLevel() {
+    dispatch({ type: "addGroupLevel" });
+    const lastHead = template.bands.map((b) => b.type).lastIndexOf("groupHeader");
+    setBandIdx(lastHead + 1);
+    setSelEl(null);
+    setNotice("เพิ่มกลุ่มย่อยแล้ว — เลือกฟิลด์ที่ใช้จัดกลุ่มชั้นใน");
+  }
+
   function removeBand(idx = bandIdx) {
     const i = idx ?? bandIdx;
     if (!template.bands[i]) return;
@@ -1552,6 +1560,8 @@ export function ReportDesigner({ initialTemplate, initialData }: { initialTempla
                 onPatch={(patch, live) => setBandPatch(patch, live)}
                 onDelete={removeBand}
                 onAddBand={addBand}
+                onAddGroupLevel={addGroupLevel}
+                groupKey={groupLevels(template).find((l) => l.footer === bandIdx)?.key}
                 canDelete={template.bands.length > 1}
               />
             ) : null)}

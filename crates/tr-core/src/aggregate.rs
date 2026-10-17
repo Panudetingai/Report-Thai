@@ -5,10 +5,15 @@
 //!
 //! รูปแบบ: `{{ sum(item.amount) }}` (ทศนิยม 2 ตำแหน่ง, คั่นหลักพัน),
 //! `{{ sum(item.amount, 0) }}` (กำหนดทศนิยมเอง), `{{ count() }}`, `{{ count(item.no) }}` (นับที่ไม่ว่าง)
-//! หมายเหตุ: รวมด้วย f64 — เหมาะกับยอดเงินทั่วไป ไม่ใช่การบัญชีที่ต้องถูกทุกสตางค์ในหลักล้าน
+//! ซ้อนในฟังก์ชันจัดรูปแบบได้ เช่น `{{ bahttext(sum(item.amount)) }}` (ดู `expr`)
+//!
+//! รวมด้วยทศนิยมตายตัว (`rust_decimal`, 28 หลัก) ไม่ใช้ f64 — ยอดเงินถูกทุกสตางค์ ปัดครึ่งขึ้นตามธรรมเนียมใบเสร็จ
 
+use crate::expr::Expr;
 use crate::lookup;
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde_json::Value;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggKind {
@@ -58,13 +63,24 @@ pub fn parse_agg(expr: &str) -> Option<AggCall> {
     Some(AggCall { kind, path, decimals })
 }
 
-/// ค่าที่เป็นตัวเลขได้: number หรือ string ที่แปลงได้ (ตัด comma ออกก่อน)
-pub fn number_of(v: &Value) -> Option<f64> {
-    match v {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.trim().replace(',', "").parse::<f64>().ok().filter(|x| x.is_finite()),
-        _ => None,
+/// ค่าที่เป็นตัวเลขได้: number หรือ string ที่แปลงได้ (ตัด comma ออกก่อน) เป็นทศนิยมตายตัว
+/// ตัวเลขใน JSON อ่านจากรูปข้อความ (เช่น 0.1 → 0.1 พอดี ไม่ใช่ 0.1000000000000000055…)
+pub fn decimal_of(v: &Value) -> Option<Decimal> {
+    let text = match v {
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.trim().replace(',', ""),
+        _ => return None,
+    };
+    if text.is_empty() {
+        return None;
     }
+    Decimal::from_str(&text).or_else(|_| Decimal::from_scientific(&text)).ok()
+}
+
+/// เหมือน `decimal_of` แต่คืน f64 (สำหรับโค้ดที่ไม่ต้องการความแม่นยำระดับสตางค์)
+pub fn number_of(v: &Value) -> Option<f64> {
+    use rust_decimal::prelude::ToPrimitive;
+    decimal_of(v).and_then(|d| d.to_f64())
 }
 
 /// ข้อความของค่าที่ใช้เป็นคีย์กลุ่ม (null/ไม่มี = ว่าง)
@@ -76,19 +92,21 @@ pub fn key_text(v: Option<&Value>) -> String {
     }
 }
 
-/// จัดรูปแบบตัวเลข: ทศนิยมตามที่กำหนด, คั่นหลักพัน, ไม่ติดลบถ้าปัดเป็นศูนย์
-pub fn format_number(v: f64, decimals: usize, grouping: bool) -> String {
-    // ปัดครึ่งขึ้น (ตามธรรมเนียมใบเสร็จ) — format! ของ Rust ปัดครึ่งเป็นเลขคู่
-    let factor = 10f64.powi(decimals as i32);
-    // บวก epsilon เล็กน้อยกันค่าเช่น 2.675 ที่แทนในไบนารีเป็น 2.67499… ให้ปัดลงผิด
-    let half_up = (v.abs() * factor + 1e-7).round() / factor;
-    let rounded = format!("{:.*}", decimals, half_up);
-    let (int_part, frac_part) = match rounded.split_once('.') {
-        Some((i, f)) => (i.to_string(), Some(f.to_string())),
-        None => (rounded.clone(), None),
+/// จัดรูปแบบตัวเลข: ทศนิยมตามที่กำหนด (ปัดครึ่งขึ้น), คั่นหลักพัน, ไม่ติดลบถ้าปัดเป็นศูนย์
+pub fn format_decimal(v: Decimal, decimals: u32, grouping: bool) -> String {
+    let mut r = v.round_dp_with_strategy(decimals, RoundingStrategy::MidpointAwayFromZero);
+    r.rescale(decimals);
+    let negative = r.is_sign_negative() && !r.is_zero();
+    let plain = r.abs().to_string();
+    let (int_part, frac_part) = match plain.split_once('.') {
+        Some((i, f)) => (i, Some(f)),
+        None => (plain.as_str(), None),
     };
-    let mut out = String::new();
-    let len = int_part.chars().count();
+    let mut out = String::with_capacity(plain.len() + 4);
+    if negative {
+        out.push('-');
+    }
+    let len = int_part.len();
     for (k, ch) in int_part.chars().enumerate() {
         if grouping && k > 0 && (len - k) % 3 == 0 {
             out.push(',');
@@ -97,18 +115,22 @@ pub fn format_number(v: f64, decimals: usize, grouping: bool) -> String {
     }
     if let Some(f) = frac_part {
         out.push('.');
-        out.push_str(&f);
+        out.push_str(f);
     }
-    let is_zero = out.chars().all(|c| c == '0' || c == '.' || c == ',');
-    if v < 0.0 && !is_zero {
-        format!("-{out}")
-    } else {
-        out
-    }
+    out
 }
 
-/// คำนวณค่าของนิพจน์รวมค่าบนแถวทั้งหมดที่ส่งเข้ามา
-pub fn eval_agg(call: &AggCall, rows: &[Option<Value>]) -> String {
+/// เหมือน `format_decimal` สำหรับ f64 — แปลงผ่านรูปข้อความที่สั้นที่สุดของ f64 (0.125 → "0.125")
+pub fn format_number(v: f64, decimals: usize, grouping: bool) -> String {
+    let d = Decimal::from_str(&v.to_string())
+        .or_else(|_| Decimal::from_scientific(&format!("{v:e}")))
+        .unwrap_or_default();
+    format_decimal(d, decimals as u32, grouping)
+}
+
+/// ค่าดิบของการรวม (ยังไม่จัดรูปแบบ) — None เมื่อไม่มีแถวที่เป็นตัวเลข (ยกเว้น sum = 0)
+/// หรือผลรวมเกินช่วงของ Decimal (~7.9 × 10²⁸)
+pub fn agg_value(call: &AggCall, rows: &[Option<Value>]) -> Option<Decimal> {
     let field = |row: &Option<Value>| -> Option<Value> {
         let r = row.as_ref()?;
         match &call.path {
@@ -116,41 +138,42 @@ pub fn eval_agg(call: &AggCall, rows: &[Option<Value>]) -> String {
             None => Some(r.clone()),
         }
     };
+    if call.kind == AggKind::Count {
+        let n = match &call.path {
+            None => rows.len(),
+            Some(_) => rows
+                .iter()
+                .filter(|r| match field(r) {
+                    None | Some(Value::Null) => false,
+                    Some(Value::String(s)) => !s.trim().is_empty(),
+                    Some(_) => true,
+                })
+                .count(),
+        };
+        return Some(Decimal::from(n));
+    }
+    let nums: Vec<Decimal> = rows.iter().filter_map(field).filter_map(|v| decimal_of(&v)).collect();
+    let sum = || nums.iter().try_fold(Decimal::ZERO, |acc, x| acc.checked_add(*x));
     match call.kind {
-        AggKind::Count => {
-            let n = match &call.path {
-                None => rows.len(),
-                Some(_) => rows
-                    .iter()
-                    .filter(|r| match field(r) {
-                        None | Some(Value::Null) => false,
-                        Some(Value::String(s)) => !s.trim().is_empty(),
-                        Some(_) => true,
-                    })
-                    .count(),
-            };
-            n.to_string()
-        }
-        AggKind::Sum | AggKind::Avg | AggKind::Min | AggKind::Max => {
-            let nums: Vec<f64> = rows.iter().filter_map(|r| field(r)).filter_map(|v| number_of(&v)).collect();
-            let value = match call.kind {
-                AggKind::Sum => Some(nums.iter().sum::<f64>()),
-                AggKind::Avg if !nums.is_empty() => Some(nums.iter().sum::<f64>() / nums.len() as f64),
-                AggKind::Min => nums.iter().cloned().reduce(f64::min),
-                AggKind::Max => nums.iter().cloned().reduce(f64::max),
-                _ => None,
-            };
-            match value {
-                Some(v) => format_number(v, call.decimals, true),
-                // ไม่มีแถวที่เป็นตัวเลข: รวมได้ 0, ค่าเฉลี่ย/ต่ำสุด/สูงสุดเว้นว่าง
-                None if call.kind == AggKind::Sum => format_number(0.0, call.decimals, true),
-                None => String::new(),
-            }
-        }
+        AggKind::Sum => sum(),
+        AggKind::Avg if !nums.is_empty() => sum()?.checked_div(Decimal::from(nums.len())),
+        AggKind::Min => nums.iter().copied().min(),
+        AggKind::Max => nums.iter().copied().max(),
+        _ => None,
     }
 }
 
+/// คำนวณค่าของนิพจน์รวมค่าบนแถวทั้งหมดที่ส่งเข้ามา (จัดรูปแบบแล้ว: คั่นหลักพัน ทศนิยมตาม `decimals`)
+/// ไม่มีแถวที่เป็นตัวเลข: รวมได้ 0, ค่าเฉลี่ย/ต่ำสุด/สูงสุดเว้นว่าง
+pub fn eval_agg(call: &AggCall, rows: &[Option<Value>]) -> String {
+    agg_value(call, rows)
+        .map(|v| format_decimal(v, call.decimals as u32, true))
+        .unwrap_or_default()
+}
+
 /// แทน `{{ … }}` ที่เป็นการรวมค่า/กลุ่มด้วยค่าจริง; นิพจน์อื่นคงไว้ทั้งชิ้น
+/// การรวมค่าที่ซ้อนในฟังก์ชัน (`{{ bahttext(sum(item.amount)) }}`) ถูกแทนด้วยตัวเลขดิบ
+/// แล้วคงฟังก์ชันไว้ให้ตัวผูกค่า (`bind_text`) ทำต่อ → `{{ bahttext(1500.50) }}`
 /// group = (ค่าคีย์ของกลุ่ม, จำนวนแถวในกลุ่ม) หรือ None นอกการจัดกลุ่ม
 pub fn bind_aggregates(raw: &str, rows: &[Option<Value>], group: Option<(&str, usize)>) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -167,7 +190,13 @@ pub fn bind_aggregates(raw: &str, rows: &[Option<Value>], group: Option<(&str, u
         let replaced = match expr {
             "group.value" => group.map(|(v, _)| v.to_string()),
             "group.count" => group.map(|(_, n)| n.to_string()),
-            _ => parse_agg(expr).map(|call| eval_agg(&call, rows)),
+            _ => match parse_agg(expr) {
+                Some(call) => Some(eval_agg(&call, rows)),
+                None => Expr::parse(expr)
+                    .filter(|e| matches!(e, Expr::Call(..)))
+                    .and_then(|e| substitute_nested(&e, rows, group))
+                    .map(|e| format!("{{{{ {} }}}}", e.to_source())),
+            },
         };
         match replaced {
             Some(text) => out.push_str(&text),
@@ -181,6 +210,33 @@ pub fn bind_aggregates(raw: &str, rows: &[Option<Value>], group: Option<(&str, u
     }
     out.push_str(rest);
     out
+}
+
+/// แทนการรวมค่า/group.* ที่ซ้อนอยู่ในนิพจน์ด้วยค่าคงที่ — None ถ้าไม่มีอะไรให้แทน (คงนิพจน์เดิม)
+fn substitute_nested(e: &Expr, rows: &[Option<Value>], group: Option<(&str, usize)>) -> Option<Expr> {
+    match e {
+        Expr::Path(p) if p == "group.value" => group.map(|(v, _)| Expr::Str(v.to_string())),
+        Expr::Path(p) if p == "group.count" => group.map(|(_, n)| Expr::Num(n.to_string())),
+        Expr::Call(name, args) => {
+            if let Some(call) = parse_agg(&e.to_source()) {
+                let raw = agg_value(&call, rows).map(|v| format_decimal(v, call.decimals as u32, false));
+                return Some(raw.map(Expr::Num).unwrap_or_else(|| Expr::Str(String::new())));
+            }
+            let mut changed = false;
+            let new_args = args
+                .iter()
+                .map(|a| match substitute_nested(a, rows, group) {
+                    Some(n) => {
+                        changed = true;
+                        n
+                    }
+                    None => a.clone(),
+                })
+                .collect();
+            changed.then(|| Expr::Call(name.clone(), new_args))
+        }
+        _ => None,
+    }
 }
 
 /// แบ่งแถวเป็นกลุ่มตามค่าของ `key` โดยดูเฉพาะแถวที่ติดกัน (ข้อมูลต้องเรียงมาก่อน)
@@ -253,6 +309,28 @@ mod tests {
         assert_eq!(bind_aggregates("{{ group.value }}", &r, Some(("หมวด 1", 2))), "หมวด 1");
         assert_eq!(bind_aggregates("{{ group.value }}", &r, None), "{{ group.value }}");
         assert_eq!(bind_aggregates("ไม่ปิด {{ sum(item.a)", &r, None), "ไม่ปิด {{ sum(item.a)");
+    }
+
+    #[test]
+    fn decimal_sum_is_exact() {
+        // f64: 0.1 + 0.2 = 0.30000000000000004 และผลรวมหลักล้านหลายพันแถวเพี้ยนสะสม
+        let r = rows(json!([{"a": 0.1}, {"a": "0.2"}]));
+        assert_eq!(eval_agg(&parse_agg("sum(item.a, 6)").unwrap(), &r), "0.300000");
+        let many: Vec<Option<Value>> = (0..10_000).map(|_| Some(json!({"a": "1234567.89"}))).collect();
+        assert_eq!(eval_agg(&parse_agg("sum(item.a)").unwrap(), &many), "12,345,678,900.00");
+        // ปัดครึ่งขึ้นที่ค่าที่ f64 แทนไม่ได้พอดี
+        assert_eq!(format_number(2.675, 2, false), "2.68");
+        assert_eq!(format_number(1.005, 2, false), "1.01");
+    }
+
+    #[test]
+    fn nested_aggregates_become_literals() {
+        let r = rows(json!([{"amount": "1,000"}, {"amount": 200.5}]));
+        assert_eq!(bind_aggregates("{{ bahttext(sum(item.amount)) }}", &r, None), "{{ bahttext(1200.50) }}");
+        assert_eq!(bind_aggregates("{{ thaidigits(count()) }}", &r, None), "{{ thaidigits(2) }}");
+        assert_eq!(bind_aggregates("{{ thaidigits(group.value) }}", &r, Some(("12", 2))), "{{ thaidigits(\"12\") }}");
+        // ไม่มีการรวมค่าข้างใน → คงไว้ตามที่เขียน
+        assert_eq!(bind_aggregates("{{ number( item.amount ) }}", &r, None), "{{ number( item.amount ) }}");
     }
 
     #[test]

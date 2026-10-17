@@ -7,6 +7,7 @@
  */
 import { EXPR_SOURCE, bindSegments, detailSourceOf, resolveExpr, rowsOf, scanExprs, tableSourceOf, valueText } from "./bind";
 import { isDataImageSrc, needsEmbedForPreview } from "./image-embed";
+import { exprPaths, mapPaths, parseExpr, toSource, unknownFns, usesAggregate } from "./expr";
 
 const SAMPLE_ROWS = 200;
 const AUTO_MIN_SCORE = 60;
@@ -98,7 +99,7 @@ export function collectUses(template) {
 export function analyzeTemplate(template, data) {
   const uses = collectUses(template);
   const map = new Map();
-  for (const u of uses) {
+  for (const u of uses.flatMap(expandUse)) {
     const key = `${u.source ?? ""}|${u.expr}`;
     const p = map.get(key);
     if (p) {
@@ -128,16 +129,28 @@ export function analyzeTemplate(template, data) {
   return { uses, problems };
 }
 
-/** เหตุผลที่ผูกไม่ได้ของ use หนึ่งจุด หรือ null ถ้าผูกได้ */
-const AGG_FN = /^(sum|count|avg|min|max)\(/;
 const GROUP_BANDS = ["groupHeader", "groupFooter", "summary"];
 
+/**
+ * นิพจน์ที่เป็นการเรียกฟังก์ชัน → ตรวจทีละฟิลด์ข้างใน (ปัญหาจึงชี้ไปที่ฟิลด์ และจับคู่ฟิลด์ใหม่ได้เหมือนฟิลด์ธรรมดา)
+ * ฟังก์ชันที่ไม่รู้จัก/รูปแบบผิด → "unsupported" · รวมค่านอก band ที่รวมได้ → "aggregate"
+ */
+function expandUse(u) {
+  if (!u.expr.includes("(")) return [u];
+  const e = parseExpr(u.expr);
+  if (!e || e.kind !== "call" || unknownFns(e).length) return [{ ...u, forced: "unsupported" }];
+  if (usesAggregate(e) && !GROUP_BANDS.includes(u.bandType)) return [{ ...u, forced: "aggregate" }];
+  return exprPaths(e).map((p) => ({ ...u, expr: p }));
+}
+
+/** เหตุผลที่ผูกไม่ได้ของ use หนึ่งจุด หรือ null ถ้าผูกได้ */
 function checkUse(u, data) {
-  // รวมค่า/กลุ่ม: engine แทนค่าเฉพาะใน band หัวกลุ่ม ท้ายกลุ่ม และสรุป
-  if (AGG_FN.test(u.expr) || u.expr === "group.value" || u.expr === "group.count") {
+  if (u.forced) return u.forced;
+  // group.value / group.count: engine แทนค่าเฉพาะใน band หัวกลุ่ม ท้ายกลุ่ม และสรุป
+  if (u.expr === "group.value" || u.expr === "group.count") {
     return GROUP_BANDS.includes(u.bandType) ? null : "aggregate";
   }
-  if (u.expr.includes("(") || u.expr.includes("|")) return "unsupported";
+  if (u.expr.includes("|")) return "unsupported";
   if (u.source == null) {
     return resolveExpr(u.expr, data).ok ? null : "missing";
   }
@@ -229,7 +242,11 @@ export function remapTemplate(template, mapping) {
       ? text
       : text.replace(EXPR_SOURCE, (whole, expr) => {
           const next = mapping.get(expr.trim());
-          return next ? `{{ ${next} }}` : whole;
+          if (next) return `{{ ${next} }}`;
+          // ฟิลด์ที่อยู่ในฟังก์ชัน เช่น number(item.amt) → number(item.amount)
+          const call = expr.includes("(") ? parseExpr(expr.trim()) : null;
+          const mapped = call?.kind === "call" ? mapPaths(call, mapping) : null;
+          return mapped ? `{{ ${toSource(mapped)} }}` : whole;
         });
   const bands = template.bands.map((band) => ({
     ...band,

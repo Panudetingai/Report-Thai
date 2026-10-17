@@ -168,3 +168,148 @@ fn shipped_grouped_sample_has_expected_subtotals() {
     assert!(all.iter().any(|s| *s == "22,077.00"), "ยอดรวมทั้งสิ้น 22,077.00");
     assert!(all.iter().any(|s| s.starts_with("รวมทั้งสิ้น 15 รายการ")), "จำนวนรายการรวม 15");
 }
+
+/// หน้าแรกต้องเรียง หัวกระดาษ → หัวเรื่อง → หัวคอลัมน์ (ตรงกับหน้าออกแบบ) · หน้าถัดไปไม่มีหัวเรื่อง และหัวคอลัมน์อยู่บนสุด
+#[test]
+fn first_page_band_order_matches_designer() {
+    let mut t = template(false);
+    t["bands"].as_array_mut().unwrap().insert(
+        0,
+        json!({ "type": "pageHeader", "height": 8, "elements": [text(0, 1, 180, 6, "บริษัททดสอบ")] }),
+    );
+    let tpl = tr_core::Template::from_json(&t.to_string()).unwrap();
+    let pages = tr_pdf::page_text_positions(&tpl, &items(80, 1), &fonts(), None).unwrap();
+    let y_of = |p: usize, s: &str| pages[p].iter().find(|(_, t)| t == s).map(|(y, _)| *y).unwrap_or_else(|| panic!("หน้า {} ไม่มี {s}", p + 1));
+
+    let (head, title, col, first) = (y_of(0, "บริษัททดสอบ"), y_of(0, "รายงานทดสอบ"), y_of(0, "ลำดับ"), y_of(0, "รายการ 1"));
+    assert!(head < title && title < col && col < first, "หน้า 1: หัวกระดาษ {head} < หัวเรื่อง {title} < หัวคอลัมน์ {col} < แถวแรก {first}");
+
+    assert!(pages.len() >= 2, "80 แถวต้องเกินหนึ่งหน้า");
+    assert!(!pages[1].iter().any(|(_, t)| t == "รายงานทดสอบ"), "หัวเรื่องพิมพ์เฉพาะหน้าแรก");
+    let (head2, col2) = (y_of(1, "บริษัททดสอบ"), y_of(1, "ลำดับ"));
+    assert!((head2 - head).abs() < 0.01, "หัวกระดาษอยู่ที่เดิมทุกหน้า");
+    assert!(head2 < col2 && col2 < title, "หน้า 2: หัวคอลัมน์ขึ้นไปแทนที่หัวเรื่อง");
+}
+
+/// กลุ่มซ้อนสองชั้น: ภาค → หมวด · ยอดรวมย่อยแต่ละชั้นนับเฉพาะแถวในกลุ่มของตัวเอง
+fn nested_template(footers: Vec<Value>) -> Value {
+    let mut bands = vec![
+        json!({ "type": "groupHeader", "groupBy": "item.region", "height": 8, "elements": [text(0, 1, 180, 6, "ภาค {{ group.value }}")] }),
+        json!({ "type": "groupHeader", "groupBy": "item.category", "height": 7, "elements": [text(0, 1, 180, 6, "หมวด {{ group.value }} ({{ group.count }})")] }),
+        json!({ "type": "detail", "dataSource": "items", "height": 6, "elements": [text(0, 0, 100, 5, "แถว {{ item.no }}")] }),
+    ];
+    bands.extend(footers);
+    bands.push(json!({ "type": "summary", "height": 8, "elements": [text(0, 1, 180, 6, "ทั้งหมด {{ sum(item.amount, 0) }}")] }));
+    json!({
+        "schemaVersion": "1.0",
+        "page": { "size": "A4", "margin": [15, 15, 15, 15] },
+        "fonts": [{ "family": "Sarabun", "embed": true }],
+        "bands": bands,
+    })
+}
+
+fn nested_rows() -> Value {
+    // ภาค เหนือ: หมวด A ×2, B ×1 · ภาค ใต้: หมวด A ×1 (หมวด A ซ้ำคนละภาค ต้องเป็นคนละกลุ่ม)
+    json!({ "items": [
+        { "no": 1, "region": "เหนือ", "category": "A", "amount": 10 },
+        { "no": 2, "region": "เหนือ", "category": "A", "amount": 20 },
+        { "no": 3, "region": "เหนือ", "category": "B", "amount": 5 },
+        { "no": 4, "region": "ใต้", "category": "A", "amount": 1 },
+    ]})
+}
+
+#[test]
+fn nested_groups_print_in_order_with_per_level_totals() {
+    // ไม่ระบุ groupBy ที่ท้ายกลุ่ม: จับคู่จากชั้นในออกมาตามลำดับที่เขียน (ท้ายหมวด แล้วท้ายภาค)
+    let implicit = nested_template(vec![
+        json!({ "type": "groupFooter", "height": 7, "elements": [text(0, 1, 180, 6, "รวมหมวด {{ group.value }} {{ sum(item.amount, 0) }}")] }),
+        json!({ "type": "groupFooter", "height": 7, "elements": [text(0, 1, 180, 6, "รวมภาค {{ group.value }} {{ sum(item.amount, 0) }}")] }),
+    ]);
+    // ระบุ groupBy: ลำดับใน template ไม่มีผล
+    let explicit = nested_template(vec![
+        json!({ "type": "groupFooter", "groupBy": "item.region", "height": 7, "elements": [text(0, 1, 180, 6, "รวมภาค {{ group.value }} {{ sum(item.amount, 0) }}")] }),
+        json!({ "type": "groupFooter", "groupBy": "item.category", "height": 7, "elements": [text(0, 1, 180, 6, "รวมหมวด {{ group.value }} {{ sum(item.amount, 0) }}")] }),
+    ]);
+    let want = [
+        "ภาค เหนือ",
+        "หมวด A (2)", "แถว 1", "แถว 2", "รวมหมวด A 30",
+        "หมวด B (1)", "แถว 3", "รวมหมวด B 5",
+        "รวมภาค เหนือ 35",
+        "ภาค ใต้",
+        "หมวด A (1)", "แถว 4", "รวมหมวด A 1",
+        "รวมภาค ใต้ 1",
+        "ทั้งหมด 36",
+    ];
+    for t in [implicit, explicit] {
+        let got: Vec<String> = layout(&t, &nested_rows()).concat();
+        assert_eq!(got, want);
+    }
+}
+
+#[test]
+fn nested_group_headers_are_kept_with_first_row() {
+    // หัวภาค + หัวหมวด + แถวแรก ต้องอยู่หน้าเดียวกันเสมอ (ไม่ค้างหัวไว้ท้ายหน้า)
+    // ไล่จำนวนแถวของภาคแรกให้ภาคที่สองเริ่มที่ทุกระยะท้ายหน้า — รวมช่วงที่พอแค่หัวภาค + แถว แต่ไม่พอหัวหมวด
+    for n in 30..=50 {
+        let rows: Vec<Value> = (0..n + 3)
+            .map(|i| json!({ "no": i + 1, "region": if i < n { "R1" } else { "R2" }, "category": if i < n { "C1" } else { "C2" }, "amount": 1 }))
+            .collect();
+        let pages = layout(&nested_template(vec![]), &json!({ "items": rows }));
+        for (pi, p) in pages.iter().enumerate() {
+            let last = p.last().unwrap();
+            assert!(!last.starts_with("ภาค ") && !last.starts_with("หมวด "), "n={n} หน้า {} จบด้วยหัวกลุ่ม: {last}", pi + 1);
+        }
+        let nums: Vec<usize> = pages.concat().iter().filter_map(|s| s.strip_prefix("แถว ")?.parse().ok()).collect();
+        assert_eq!(nums, (1..=n + 3).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn group_footer_pairing_errors_are_clear() {
+    let err = |footers: Vec<Value>| {
+        let tpl = tr_core::Template::from_json(&nested_template(footers).to_string()).unwrap();
+        tpl.validate().unwrap_err()
+    };
+    let f = |g: Option<&str>| match g {
+        Some(g) => json!({ "type": "groupFooter", "groupBy": g, "height": 7, "elements": [] }),
+        None => json!({ "type": "groupFooter", "height": 7, "elements": [] }),
+    };
+    assert!(err(vec![f(Some("item.city"))]).contains("item.city"));
+    assert!(err(vec![f(Some("item.region")), f(Some("item.region"))]).contains("มากกว่าหนึ่ง"));
+    assert!(err(vec![f(None), f(None), f(None)]).contains("ท้ายกลุ่มมากกว่าหัวกลุ่ม"));
+}
+
+/// เอกสารแบบไม่มีแถวข้อมูล (คู่มือ MCP แนะนำให้ใช้ section): พิมพ์ตามลำดับ, ข้อความ grow ดัน section ถัดไปลง, ขึ้นหน้าใหม่เมื่อไม่พอ
+#[test]
+fn content_sections_flow_in_order_and_grow() {
+    let para = "การเขียนรายงานโครงการต้องสรุปวัตถุประสงค์ วิธีดำเนินงาน และผลที่ได้อย่างกระชับ ".repeat(6);
+    let mut bands = vec![json!({ "type": "title", "height": 12, "elements": [text(0, 0, 180, 10, "รายงานโครงการ")] })];
+    for i in 1..=12 {
+        bands.push(json!({ "type": "section", "mode": "content", "height": 20, "gap_before": 4, "elements": [
+            text(0, 0, 180, 7, &format!("หัวข้อ {i}")),
+            json!({ "type": "text", "x": 8, "y": 8, "w": 172, "h": 6, "font": "Sarabun", "size": 11, "text": format!("    ย่อหน้า {i} {para}"), "overflow": "grow" }),
+        ]}));
+    }
+    let t = json!({ "schemaVersion": "1.0", "page": { "size": "A4", "margin": [15, 15, 15, 15] }, "bands": bands });
+    let tpl = tr_core::Template::from_json(&t.to_string()).unwrap();
+    let pages = tr_pdf::page_text_positions(&tpl, &json!({}), &fonts(), None).unwrap();
+    assert!(pages.len() >= 2, "12 ส่วนที่ย่อหน้ายาวต้องเกินหนึ่งหน้า");
+
+    let heads: Vec<(usize, f32, usize)> = pages
+        .iter()
+        .enumerate()
+        .flat_map(|(p, items)| items.iter().filter_map(move |(y, s)| Some((p, *y, s.strip_prefix("หัวข้อ ")?.parse().ok()?))))
+        .collect();
+    assert_eq!(heads.iter().map(|h| h.2).collect::<Vec<_>>(), (1..=12).collect::<Vec<_>>(), "ทุกส่วนครบ เรียงตามที่เขียน");
+    // ย่อหน้ายาวหลายบรรทัด: หัวข้อถัดไปในหน้าเดียวกันต้องอยู่ใต้บรรทัดสุดท้ายของย่อหน้าก่อนหน้า (grow ดันลง ไม่ทับ)
+    for w in heads.windows(2) {
+        let ((p0, y0, _), (p1, y1, _)) = (w[0], w[1]);
+        if p0 == p1 {
+            let last_line = pages[p0].iter().filter(|(y, _)| *y > y0 && *y < y1).map(|(y, _)| *y).fold(y0, f32::max);
+            assert!(last_line > y0 + 3.0 * 11.0, "ย่อหน้าต้องหลายบรรทัด");
+            assert!(y1 > last_line, "หัวข้อถัดไป {y1} ต้องอยู่ใต้บรรทัดสุดท้าย {last_line}");
+        }
+    }
+    let first_para = pages[0].iter().find(|(_, s)| s.contains("ย่อหน้า 1")).map(|(_, s)| s.clone()).unwrap();
+    assert!(first_para.starts_with("    "), "ช่องว่างนำหน้า (เยื้องบรรทัดแรก) ต้องคงไว้: {first_para:?}");
+}

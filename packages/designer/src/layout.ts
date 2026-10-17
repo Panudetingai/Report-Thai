@@ -1,6 +1,6 @@
 /**
  * ตำแหน่งกระดาษ/band บนหน้า (หน่วย mm) — ตามลำดับการวางของ engine (tr-pdf layout_all):
- * pageHeader → columnHeader → title → detail → groupFooter/summary → pageFooter (ติดล่าง)
+ * pageHeader → title (หน้าแรก) → columnHeader → detail → groupFooter/summary → pageFooter (ติดล่าง)
  * ใช้วาดกรอบ band และวางกล่อง element ให้ตรงกับ PDF ที่ engine render
  */
 
@@ -45,16 +45,17 @@ export function bandTops(template) {
 
   let y = m.t;
   const ph = find("pageHeader");
+  const ti = find("title");
   const ch = find("columnHeader");
   place(ph, y);
   if (ph >= 0) y += bands[ph].height;
+  place(ti, y);
+  if (ti >= 0) y += bands[ti].height;
   place(ch, y);
   if (ch >= 0) y += bands[ch].height;
 
-  const top = y;
-  const ti = find("title");
-  place(ti, y);
-  if (ti >= 0) y += bands[ti].height;
+  // ต้นเนื้อหาของหน้า (ไม่นับหัวเรื่อง) — ตรงกับ `top` ของ engine
+  const top = m.t + (ph >= 0 ? bands[ph].height : 0) + (ch >= 0 ? bands[ch].height : 0);
 
   const de = find("detail");
   place(de, y);

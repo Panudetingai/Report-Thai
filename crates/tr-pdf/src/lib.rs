@@ -697,13 +697,26 @@ pub fn page_texts(
     fonts: &HashMap<String, Vec<u8>>,
     base_dir: Option<&std::path::Path>,
 ) -> Result<Vec<Vec<String>>, String> {
+    Ok(page_text_positions(template, data, fonts, base_dir)?
+        .into_iter()
+        .map(|p| p.into_iter().map(|(_, t)| t).collect())
+        .collect())
+}
+
+/// เหมือน `page_texts` แต่คืนตำแหน่ง y (pt จากขอบบน) คู่กับข้อความ — ใช้ตรวจลำดับ band บนกระดาษ
+pub fn page_text_positions(
+    template: &Template,
+    data: &serde_json::Value,
+    fonts: &HashMap<String, Vec<u8>>,
+    base_dir: Option<&std::path::Path>,
+) -> Result<Vec<Vec<(f32, String)>>, String> {
     let pages = paginate(template, data, fonts, base_dir)?;
     Ok(pages
         .iter()
         .map(|ops| {
             ops.iter()
                 .filter_map(|op| match op {
-                    Op::Text { content, .. } => Some(content.clone()),
+                    Op::Text { y, content, .. } => Some((*y, content.clone())),
                     _ => None,
                 })
                 .collect()
@@ -882,26 +895,26 @@ fn layout_all(
         Ok(max_h.max(mm_to_pt(b.height)))
     };
 
-    // จัดกลุ่มเมื่อ group header มี groupBy (แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน)
-    let group_key: Option<String> = gheader.and_then(|b| b.group_by.clone());
-    let grouped = group_key.is_some();
+    // จัดกลุ่มเมื่อหัวกลุ่มมี groupBy (แถวที่ค่าเหมือนกันติดกันคือกลุ่มเดียวกัน) — หลายหัวกลุ่ม = กลุ่มซ้อน
+    let levels = template.group_levels()?;
+    let grouped = !levels.is_empty();
 
-    // เปิดหน้าแรก: header
+    // เปิดหน้าแรก: ลำดับเดียวกับหน้าออกแบบ — หัวกระดาษ → หัวเรื่อง (เฉพาะหน้าแรก) → หัวคอลัมน์
     {
         let pg = cur + 1;
         let ops = &mut pages[cur];
+        let ph_h = pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
         if let Some(b) = pheader {
             emit_band(Some(b), ops, cy, None, pg)?;
         }
+        let title_h = match title {
+            Some(b) => emit_band(Some(b), ops, cy + ph_h, None, pg)?,
+            None => 0.0,
+        };
         if let Some(b) = cheader {
-            let oy = cy + pheader.map(|b| mm_to_pt(b.height)).unwrap_or(0.0);
-            emit_band(Some(b), ops, oy, None, pg)?;
+            emit_band(Some(b), ops, cy + ph_h + title_h, None, pg)?;
         }
-        // title เฉพาะหน้าแรก
-        if let Some(b) = title {
-            let h = emit_band(Some(b), ops, y, None, pg)?;
-            y += h;
-        }
+        y += title_h;
         // จัดกลุ่ม: หัวกลุ่มถูกวางทีละกลุ่มในเนื้อเอกสาร (ดู flow_grouped) — ที่นี่วาดเฉพาะกรณีไม่จัดกลุ่ม
         if let Some(b) = gheader.filter(|_| !grouped).map(|b| substitute_band(b, detail_rows, None)) {
             let h = emit_band(Some(&b), ops, y, None, pg)?;
@@ -917,8 +930,11 @@ fn layout_all(
             cx, cy, top, header_h, footer_h, total_pages,
         };
         for b in template.bands.iter().filter(|b| b.is_flow()) {
-            if let (true, Some(gh), Some(key)) = (b.band_type == BandType::Detail, gheader, group_key.as_deref()) {
-                flow_grouped(&fc, b, gh, gfooter, key, detail_rows, &mut pages, &mut cur, &mut y)?;
+            if b.band_type == BandType::Detail && grouped {
+                if b.elements.iter().any(|e| matches!(e, Element::Table(_))) {
+                    return Err("band รายการที่จัดกลุ่มยังไม่รองรับตาราง — ใช้ band รายการที่เป็นข้อความ/กรอบแทน".to_string());
+                }
+                flow_grouped(&fc, b, &levels, detail_rows, &mut pages, &mut cur, &mut y)?;
                 continue;
             }
             let rows = if b.band_type == BandType::Detail { Some(detail_rows) } else { None };
@@ -1106,28 +1122,27 @@ fn flow_rows(
     Ok(())
 }
 
-/// band รายการที่จัดกลุ่ม: หัวกลุ่ม → แถวในกลุ่ม → ท้ายกลุ่ม (รวมค่าเฉพาะในกลุ่ม)
-/// หัวกลุ่มจะไม่ถูกทิ้งไว้ท้ายหน้า: ถ้าไม่พอกับแถวแรก ขึ้นหน้าใหม่ก่อน
-#[allow(clippy::too_many_arguments)]
+/// band รายการที่จัดกลุ่ม: หัวกลุ่ม → (กลุ่มชั้นใน | แถวในกลุ่ม) → ท้ายกลุ่ม (รวมค่าเฉพาะในกลุ่ม)
+/// `levels` เรียงนอก → ใน; เรียกซ้ำทีละชั้น
+/// หัวกลุ่มจะไม่ถูกทิ้งไว้ท้ายหน้า: ถ้าไม่พอกับหัวกลุ่มชั้นในทั้งหมดและแถวแรก ขึ้นหน้าใหม่ก่อน
 fn flow_grouped(
     fc: &FlowCtx,
     detail: &tr_core::Band,
-    gh: &tr_core::Band,
-    gf: Option<&tr_core::Band>,
-    key: &str,
+    levels: &[tr_core::GroupLevel],
     rows: &[Option<serde_json::Value>],
     pages: &mut Vec<Vec<Op>>,
     cur: &mut usize,
     y: &mut f32,
 ) -> Result<(), String> {
-    if detail.elements.iter().any(|e| matches!(e, Element::Table(_))) {
-        return Err("band รายการที่จัดกลุ่มยังไม่รองรับตาราง — ใช้ band รายการที่เป็นข้อความ/กรอบแทน".to_string());
-    }
-    for (gval, grows) in tr_core::aggregate::split_groups(rows, key) {
+    let Some((lv, inner)) = levels.split_first() else {
+        return flow_rows(fc, detail, rows, pages, cur, y);
+    };
+    let follow: f32 = inner.iter().map(|l| mm_to_pt(l.header.height)).sum::<f32>() + mm_to_pt(detail.height);
+    for (gval, grows) in tr_core::aggregate::split_groups(rows, lv.key) {
         let n = grows.len();
-        let head = substitute_band(gh, &grows, Some((&gval, n)));
+        let head = substitute_band(lv.header, &grows, Some((&gval, n)));
         let gap = if *y > fc.top + 0.01 { mm_to_pt(head.gap_before) } else { 0.0 };
-        if *y + gap + mm_to_pt(head.height) + mm_to_pt(detail.height) > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
+        if *y + gap + mm_to_pt(head.height) + follow > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
             fc.page_break(pages, cur, y)?;
         }
         *y += if *y > fc.top + 0.01 { gap } else { 0.0 };
@@ -1136,9 +1151,9 @@ fn flow_grouped(
         pages[*cur].extend(ops);
         *y += h;
 
-        flow_rows(fc, detail, &grows, pages, cur, y)?;
+        flow_grouped(fc, detail, inner, &grows, pages, cur, y)?;
 
-        if let Some(gf) = gf {
+        if let Some(gf) = lv.footer {
             let foot = substitute_band(gf, &grows, Some((&gval, n)));
             let gap = if *y > fc.top + 0.01 { mm_to_pt(foot.gap_before) } else { 0.0 };
             if *y + gap + mm_to_pt(foot.height) > fc.bottom() + 0.01 && *y > fc.top + 0.01 {
