@@ -47,7 +47,8 @@ cargo run -p tr-cli -- validate templates/receipt.json templates/receipt.data.js
 cargo build --release -p tr-mcp
 ```
 
-HTTP API: `crates/tr-server/README.md` · Node.js: `packages/node/README.md` · MCP: `crates/tr-mcp/README.md`
+React: `packages/react/README.md` · ตัวอย่าง Next.js: `examples/nextjs-quickstart/` · HTTP API: `crates/tr-server/README.md` ·
+Node.js: `packages/node/README.md` · MCP: `crates/tr-mcp/README.md`
 
 ดูเกณฑ์ตรวจรับใน `thai-report-spec.md` หัวข้อ 7 (Phase 0) และบันทึกผลใน `docs/spike-report.md`
 

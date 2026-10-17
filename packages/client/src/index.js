@@ -1,27 +1,32 @@
 /**
- * @thaireport/client — browser WASM engine (Phase 2)
- * เนื้อหาไทยบน PDF มาจาก engine Rust ใน WASM ไม่ใช่ DOM text
+ * @thaireport/client — engine PDF ใน browser (WASM ตัวเดียวกับ CLI/เซิร์ฟเวอร์ ได้ PDF ตรงกันทุกไบต์)
+ * เนื้อหาไทยบน PDF มาจาก engine Rust ใน WASM ไม่ใช่ DOM text · ฟอนต์ Sarabun/Noto Sans Thai ฝังมาใน WASM แล้ว
+ *
+ * ไฟล์ WASM อยู่ใน `wasm/` ของแพ็กเกจนี้ (คัดลอกจาก crates/tr-wasm/pkg-web ด้วย scripts/build-wasm.sh)
+ * path เขียนเป็นค่าคงที่ให้ bundler (Vite, webpack/Next.js, Turbopack) เห็นและคัดลอกไฟล์ไปที่ build เอง
+ * โหลดแบบ lazy: ไฟล์ ~5 MB ถูกดึงเมื่อเรียกใช้ครั้งแรกเท่านั้น
  */
-
-const WASM_PKG = new URL("../../../crates/tr-wasm/pkg-web/tr_wasm.js", import.meta.url);
-// URL ของไบนารีอ้างแบบตรง ให้ bundler (Vite/webpack) คัดลอกไฟล์ .wasm ไปที่ build ด้วย
-const WASM_BIN = new URL("../../../crates/tr-wasm/pkg-web/tr_wasm_bg.wasm", import.meta.url);
 
 let initPromise = null;
 let api = null;
 
 /**
- * โหลด WASM ครั้งเดียว (เรียกซ้ำได้ คืน promise เดิม)
- * @param {{ moduleUrl?: string, binary?: BufferSource | URL }} [opts]  ใช้ในเทสต์/ไม่มี fetch: ส่ง binary เป็นไบต์ตรง ๆ
+ * โหลด WASM ครั้งเดียว (เรียกซ้ำได้ คืน promise เดิม) — ทุกฟังก์ชันด้านล่างเรียกให้เอง ไม่ต้องเรียกก่อนก็ได้
+ * @param {{ moduleUrl?: string, binary?: BufferSource | URL | string }} [opts]
+ *   `binary`: ไบต์หรือ URL ของ tr_wasm_bg.wasm (เช่นวางไฟล์ไว้ที่ CDN เอง) · `moduleUrl`: ใช้ในเทสต์
  */
 export function initThaireport(opts = {}) {
   if (api) return Promise.resolve(api);
   initPromise ??= (async () => {
-    const mod = await import(opts.moduleUrl ?? WASM_PKG.href);
-    await mod.default(opts.binary ?? WASM_BIN);
+    const mod = opts.moduleUrl ? await import(/* @vite-ignore */ /* webpackIgnore: true */ opts.moduleUrl) : await import("../wasm/tr_wasm.js");
+    await mod.default({ module_or_path: opts.binary ?? new URL("../wasm/tr_wasm_bg.wasm", import.meta.url) });
     api = mod;
     return mod;
   })();
+  // โหลดไม่สำเร็จ → ให้ลองใหม่ได้ (เช่นเน็ตหลุด) แทนการคืน promise ที่ล้มไว้ตลอด
+  initPromise.catch(() => {
+    initPromise = null;
+  });
   return initPromise;
 }
 

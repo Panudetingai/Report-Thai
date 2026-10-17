@@ -45,7 +45,7 @@ jobs:
           tool: wasm-pack
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: packages/designer/package-lock.json
       - name: build WASM (web + node)
@@ -58,12 +58,18 @@ jobs:
       - name: designer — typecheck
         working-directory: packages/designer
         run: npm run typecheck
-      - name: designer — เทสต์
-        working-directory: packages/designer
-        run: npm test
+      # build ก่อนเทสต์: prebuild คัดลอก WASM ไป public/tr-wasm ที่เทสต์พรีวิวใช้
       - name: designer — build
         working-directory: packages/designer
         run: npm run build
+      - name: designer — เทสต์
+        working-directory: packages/designer
+        run: npm test
+      - name: "@thaireport/react — ติดตั้ง (npm workspaces) + เทสต์"
+        run: npm ci && npm test
+      - name: ตัวอย่าง Next.js — ติดตั้งจากแพ็กเกจที่ pack แล้ว + build
+        working-directory: examples/nextjs-quickstart
+        run: npm run pack:local && npm install && npm run build
 
   node:
     runs-on: ubuntu-latest
@@ -73,7 +79,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: build addon
         working-directory: packages/node
         run: npm run build

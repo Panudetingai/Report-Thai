@@ -10,4 +10,7 @@ fi
 rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 wasm-pack build --target web --out-dir pkg-web --release
 wasm-pack build --target nodejs --out-dir pkg-node --release
-echo "WASM build เสร็จ: crates/tr-wasm/pkg-web และ pkg-node"
+# แพ็กเกจ @thaireport/client ถือไฟล์ WASM ของตัวเอง (publish ได้ ไม่อ้าง path ใน repo)
+mkdir -p "$ROOT/packages/client/wasm"
+cp pkg-web/tr_wasm.js pkg-web/tr_wasm.d.ts pkg-web/tr_wasm_bg.wasm "$ROOT/packages/client/wasm/"
+echo "WASM build เสร็จ: crates/tr-wasm/pkg-web, pkg-node และ packages/client/wasm"
